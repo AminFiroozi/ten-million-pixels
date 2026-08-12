@@ -30,6 +30,8 @@ describe("world generation", () => {
     for (const c of w.cells) counts.set(c, (counts.get(c) ?? 0) + 1);
     expect(counts.get(CELL.UPGRADE) ?? 0).toBeGreaterThan(50);
     expect(counts.get(CELL.OBJECT) ?? 0).toBeGreaterThan(100);
+    expect(counts.get(CELL.TREASURE) ?? 0).toBeGreaterThan(50);
+    expect(counts.get(CELL.BOSS) ?? 0).toBeGreaterThan(100);
   });
   it("out of bounds is solid, in-cavity is not", () => {
     expect(w.isSolid(-1, 0)).toBe(true);
@@ -57,5 +59,75 @@ describe("mining", () => {
     outer: for (let y = 0; y < WORLD_H; y++) for (let x = 0; x < WORLD_W; x++)
       if (w.get(x, y) === CELL.SOFT) { w.hit(x, y, 1); break outer; }
     expect(calls.length).toBe(1);
+  });
+});
+
+describe("damage feedback", () => {
+  it("fires onCellDamaged on non-destroying hits and exposes damageAt", () => {
+    const w = World.generate(1);
+    let fx = -1, fy = -1;
+    outer: for (let y = 0; y < WORLD_H; y++) for (let x = 0; x < WORLD_W; x++)
+      if (w.get(x, y) === CELL.HARD) { fx = x; fy = y; break outer; }
+    const dmg: number[] = [];
+    w.onCellDamaged = () => dmg.push(1);
+    w.hit(fx, fy, 1);
+    expect(dmg.length).toBe(1);
+    expect(w.damageAt(fx, fy)).toBe(1);
+    w.hit(fx, fy, 1);
+    expect(w.damageAt(fx, fy)).toBe(2);
+  });
+});
+
+describe("fog of war", () => {
+  it("spawn area revealed, rest dark", () => {
+    const w = World.generate(1);
+    expect(w.isExplored(640, 400)).toBe(true);
+    expect(w.isExplored(660, 400)).toBe(true);
+    expect(w.isExplored(100, 100)).toBe(false);
+    expect(w.isExplored(-1, 0)).toBe(false);
+  });
+  it("reveal marks cells and fires onCellChanged only for newly revealed", () => {
+    const w = World.generate(1);
+    const calls: number[] = [];
+    w.onCellChanged = () => calls.push(1);
+    w.reveal(100, 100, 2);
+    expect(w.isExplored(100, 100)).toBe(true);
+    expect(w.isExplored(102, 98)).toBe(true);
+    expect(calls.length).toBe(25);
+    calls.length = 0;
+    w.reveal(100, 100, 2);
+    expect(calls.length).toBe(0);
+  });
+});
+
+describe("treasure and bosses", () => {
+  const w = World.generate(1234);
+  it("treasure and boss cells exist", () => {
+    let t = 0, b = 0;
+    for (const c of w.cells) { if (c === CELL.TREASURE) t++; if (c === CELL.BOSS) b++; }
+    expect(t).toBeGreaterThan(50);
+    expect(b).toBeGreaterThan(100);
+    expect(b).toBe(w.bossMap.size);
+  });
+  it("boss blob completion detection", () => {
+    const w2 = World.generate(1234);
+    const byId = new Map<number, number[]>();
+    for (const [idx, id] of w2.bossMap) {
+      if (!byId.has(id)) byId.set(id, []);
+      byId.get(id)!.push(idx);
+    }
+    const [id, idxs] = [...byId.entries()][0];
+    for (let i = 0; i < idxs.length; i++) {
+      const x = idxs[i] % WORLD_W, y = Math.floor(idxs[i] / WORLD_W);
+      const res = w2.registerBossCellMined(x, y);
+      if (i < idxs.length - 1) expect(res).toBe(-1);
+      else expect(res).toBe(id);
+    }
+    expect(w2.registerBossCellMined(0, 0)).toBe(-1);
+  });
+  it("generation deterministic with new content", () => {
+    const a = World.generate(42), b = World.generate(42);
+    expect(Array.from(a.cells)).toEqual(Array.from(b.cells));
+    expect(a.bossMap.size).toBe(b.bossMap.size);
   });
 });
