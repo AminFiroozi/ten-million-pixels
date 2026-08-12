@@ -1,6 +1,7 @@
 import { World, WORLD_W, CELL } from "./world";
 import { BallType } from "./economy";
 import { mulberry32 } from "./rng";
+import { biomeAt, MOLTEN_DESTROY_CHANCE } from "./biomes";
 
 export interface Ball {
   x: number;
@@ -10,6 +11,7 @@ export interface Ball {
   type: BallType;
   ttl: number;
   pierceLeft: number;
+  dead: boolean;
 }
 
 export interface AbilityStats {
@@ -19,6 +21,8 @@ export interface AbilityStats {
   poisonSpread: number;
   splitCount: number;
   pierceDepth: number;
+  moltenImmune: boolean;
+  darkSpeedMul: number;
 }
 
 export type MineCallback = (cell: number, x: number, y: number) => void;
@@ -43,16 +47,17 @@ export class Physics {
     this.poisonAccum = 0;
   }
 
-  spawn(type: BallType, x: number, y: number, angle: number): void {
+  spawn(type: BallType, x: number, y: number, angle: number, speedMul: number = 1): void {
     if (this.balls.length >= MAX_BALLS) return;
     const ball: Ball = {
       x,
       y,
-      vx: Math.cos(angle) * BASE_SPEED,
-      vy: Math.sin(angle) * BASE_SPEED,
+      vx: Math.cos(angle) * BASE_SPEED * speedMul,
+      vy: Math.sin(angle) * BASE_SPEED * speedMul,
       type,
       ttl: -1,
       pierceLeft: type === "yellow" ? -1 : 0,
+      dead: false,
     };
     if (type === "blue") this.snapToAxis(ball);
     this.balls.push(ball);
@@ -70,6 +75,7 @@ export class Physics {
     }
 
     this.balls = this.balls.filter(b =>
+      !b.dead &&
       Number.isFinite(b.x) &&
       Number.isFinite(b.y) &&
       Number.isFinite(b.vx) &&
@@ -88,12 +94,15 @@ export class Physics {
     let dirY = ball.vy / speed;
 
     let remaining = totalDist;
-    while (remaining > 0) {
+    while (remaining > 0 && !ball.dead) {
       const sub = Math.min(MAX_SUBSTEP, remaining);
       remaining -= sub;
 
-      const nx = ball.x + dirX * sub;
-      const ny = ball.y + dirY * sub;
+      const darkMul = this.world.isExplored(Math.floor(ball.x), Math.floor(ball.y)) ? 1 : stats.darkSpeedMul;
+      const moveDist = sub * darkMul;
+
+      const nx = ball.x + dirX * moveDist;
+      const ny = ball.y + dirY * moveDist;
 
       if (this.world.isSolid(Math.floor(nx), Math.floor(ny))) {
         const passThrough = this.resolveCollision(ball, nx, ny, stats, onMined);
@@ -137,6 +146,10 @@ export class Physics {
     if (ball.type === "yellow" && ball.pierceLeft > 0) {
       const destroyed = this.world.hit(hitX, hitY, 999);
       if (destroyed) onMined(destroyed, hitX, hitY);
+      if (this.rollMolten(hitX, hitY, stats)) {
+        ball.dead = true;
+        return false;
+      }
       ball.pierceLeft -= 1;
       return true;
     }
@@ -144,6 +157,11 @@ export class Physics {
     const damage = 1 * stats.dmgMul * (ball.type === "purple" ? 5 : 1);
     const destroyed = this.world.hit(hitX, hitY, damage);
     if (destroyed) onMined(destroyed, hitX, hitY);
+
+    if (this.rollMolten(hitX, hitY, stats)) {
+      ball.dead = true;
+      return false;
+    }
 
     if (ball.type === "red") {
       this.smash(hitX, hitY, stats.smashRadius, damage, onMined);
@@ -168,6 +186,12 @@ export class Physics {
     }
 
     return false;
+  }
+
+  private rollMolten(hitX: number, hitY: number, stats: AbilityStats): boolean {
+    if (stats.moltenImmune) return false;
+    if (biomeAt(hitX, hitY, this.world.seed) !== "molten") return false;
+    return this.rng() < MOLTEN_DESTROY_CHANCE;
   }
 
   private smash(cx: number, cy: number, radius: number, dmg: number, onMined: MineCallback): void {

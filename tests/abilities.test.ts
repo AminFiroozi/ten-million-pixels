@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { World, CELL, WORLD_H } from "../src/world";
 import { Physics, AbilityStats } from "../src/physics";
 
-const STATS: AbilityStats = { speedMul: 1, dmgMul: 1, smashRadius: 2, poisonSpread: 1, splitCount: 2, pierceDepth: 2 };
+const STATS: AbilityStats = { speedMul: 1, dmgMul: 1, smashRadius: 2, poisonSpread: 1, splitCount: 2, pierceDepth: 2, moltenImmune: true, darkSpeedMul: 1 };
 
 function wallWorld(): World {
   const w = World.generate(1);
