@@ -116,6 +116,10 @@
   padding: 8px;
 }
 
+.upgrade-panel.hidden {
+  display: none;
+}
+
 .upgrade-panel-close {
   position: absolute;
   top: 6px;
