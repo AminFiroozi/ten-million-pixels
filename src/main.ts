@@ -1,8 +1,9 @@
-import { World, CELL } from "./world";
-import { SaveData, diffWorld, applyDiff, saveGame, loadGame, clearSave, normalizeSave, encodeExplored } from "./save";
+import { World, CELL, WORLD_W, WORLD_H } from "./world";
+import { SaveData, diffWorld, applyDiff, saveGame, loadGame, clearSave, normalizeSave, encodeExplored, decodeExplored } from "./save";
 import { EconomyState, BallType, BALL_ORDER, newEconomy, pixelValue, statMul, abilityLevel } from "./economy";
+import { biomeAt, biomeValueMul } from "./biomes";
 import { Physics, AbilityStats } from "./physics";
-import { Renderer, Camera, screenToWorld, cellColor } from "./render";
+import { Renderer, Camera, screenToWorld, worldToScreen, cellColor } from "./render";
 import { UI } from "./ui";
 
 const SIM_DT = 1 / 120;
@@ -10,6 +11,10 @@ const MAX_SIM_STEPS = 5;
 const SPAWN_CAVITY_X = 640;
 const SPAWN_CAVITY_Y = 400;
 const AUTOSAVE_MS = 10000;
+const RADAR_INTERVAL_S = 2;
+const PINCH_ZOOM_MIN = 0.5;
+const PINCH_ZOOM_MAX = 24;
+const TOUCH_DRAG_THRESHOLD = 12;
 
 const rawSave = loadGame();
 const save = rawSave ? normalizeSave(rawSave) : null;
@@ -21,6 +26,17 @@ let stats: { pixelsMined: number; startedAt: number; won: boolean };
 if (save) {
   world = World.generate(save.seed);
   applyDiff(world, save.changes);
+  if (save.exploredRuns.length > 0) {
+    decodeExplored(save.exploredRuns, world.explored);
+  } else if (save.changes.length > 0) {
+    let idx = 0;
+    for (let i = 0; i < save.changes.length; i += 2) {
+      idx += save.changes[i];
+      const cy = Math.floor(idx / WORLD_W);
+      const cx = idx - cy * WORLD_W;
+      world.reveal(cx, cy, 6);
+    }
+  }
   economy = {
     currency: save.currency,
     upgradePoints: save.upgradePoints,
@@ -45,6 +61,7 @@ window.addEventListener("resize", resize);
 
 const renderer = new Renderer(world, canvas);
 world.onCellChanged = (x, y) => renderer.markDirty(x, y);
+world.onCellDamaged = (x, y) => renderer.markDirty(x, y);
 
 const physics = new Physics(world);
 
@@ -109,7 +126,8 @@ canvas.addEventListener(
 function spawnWaveAt(clientX: number, clientY: number): void {
   const [tx, ty] = screenToWorld(cam, canvas.width, canvas.height, clientX, clientY);
   const baseAngle = Math.atan2(ty - SPAWN_CAVITY_Y, tx - SPAWN_CAVITY_X);
-  let remaining = 20;
+  const launchSpeedMul = statMul(economy, "launchSpeed");
+  let remaining = 20 + 10 * abilityLevel(economy, "launchWave");
   for (const t of BALL_ORDER) {
     if (remaining <= 0) break;
     const owned = economy.ballsOwned[t];
@@ -118,12 +136,120 @@ function spawnWaveAt(clientX: number, clientY: number): void {
     if (toSpawn <= 0) continue;
     for (let i = 0; i < toSpawn; i++) {
       const angle = baseAngle + (Math.random() * 0.3 - 0.15);
-      physics.spawn(t, SPAWN_CAVITY_X, SPAWN_CAVITY_Y, angle);
+      physics.spawn(t, SPAWN_CAVITY_X, SPAWN_CAVITY_Y, angle, launchSpeedMul);
     }
     spawnedCount[t] = already + toSpawn;
     remaining -= toSpawn;
   }
 }
+
+interface TouchTap {
+  x: number;
+  y: number;
+  time: number;
+  dragged: boolean;
+}
+
+interface PinchState {
+  dist: number;
+  midX: number;
+  midY: number;
+}
+
+let touchTap: TouchTap | null = null;
+let pinch: PinchState | null = null;
+
+function touchDistance(a: Touch, b: Touch): number {
+  return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+}
+
+function touchMidpoint(a: Touch, b: Touch): [number, number] {
+  return [(a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2];
+}
+
+function applyPinchZoom(midX: number, midY: number, factor: number): void {
+  const [wx, wy] = screenToWorld(cam, canvas.width, canvas.height, midX, midY);
+  const newZoom = Math.min(PINCH_ZOOM_MAX, Math.max(PINCH_ZOOM_MIN, cam.zoom * factor));
+  cam.zoom = newZoom;
+  cam.x = wx - (midX - canvas.width / 2) / newZoom;
+  cam.y = wy - (midY - canvas.height / 2) / newZoom;
+}
+
+canvas.addEventListener(
+  "touchstart",
+  e => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      touchTap = { x: t.clientX, y: t.clientY, time: performance.now(), dragged: false };
+      pinch = null;
+    } else if (e.touches.length === 2) {
+      touchTap = null;
+      const [dist, [midX, midY]] = [touchDistance(e.touches[0], e.touches[1]), touchMidpoint(e.touches[0], e.touches[1])];
+      pinch = { dist, midX, midY };
+    }
+  },
+  { passive: false }
+);
+
+canvas.addEventListener(
+  "touchmove",
+  e => {
+    e.preventDefault();
+    if (e.touches.length === 2) {
+      const dist = touchDistance(e.touches[0], e.touches[1]);
+      const [midX, midY] = touchMidpoint(e.touches[0], e.touches[1]);
+      if (pinch) {
+        applyPinchZoom(midX, midY, dist / pinch.dist);
+      }
+      pinch = { dist, midX, midY };
+      touchTap = null;
+      return;
+    }
+    if (e.touches.length === 1 && touchTap) {
+      const t = e.touches[0];
+      const dx = t.clientX - touchTap.x;
+      const dy = t.clientY - touchTap.y;
+      if (touchTap.dragged || Math.hypot(dx, dy) > TOUCH_DRAG_THRESHOLD) {
+        touchTap.dragged = true;
+        cam.x -= dx / cam.zoom;
+        cam.y -= dy / cam.zoom;
+        touchTap.x = t.clientX;
+        touchTap.y = t.clientY;
+      }
+    }
+  },
+  { passive: false }
+);
+
+canvas.addEventListener(
+  "touchend",
+  e => {
+    e.preventDefault();
+    if (touchTap && !touchTap.dragged && e.touches.length === 0) {
+      spawnWaveAt(touchTap.x, touchTap.y);
+    }
+    if (e.touches.length === 0) {
+      touchTap = null;
+      pinch = null;
+    } else if (e.touches.length === 1) {
+      const t = e.touches[0];
+      touchTap = { x: t.clientX, y: t.clientY, time: performance.now(), dragged: false };
+      pinch = null;
+    }
+  },
+  { passive: false }
+);
+
+canvas.addEventListener(
+  "touchcancel",
+  e => {
+    e.preventDefault();
+    touchTap = null;
+    pinch = null;
+  },
+  { passive: false }
+);
 
 function updateCameraPan(dt: number): void {
   const speed = 400 / cam.zoom;
@@ -141,11 +267,48 @@ function updateCameraPan(dt: number): void {
 
 let uiDirty = false;
 
+function edge(x: number, y: number): number {
+  return Math.max(Math.abs(x - WORLD_W / 2) / (WORLD_W / 2), Math.abs(y - WORLD_H / 2) / (WORLD_H / 2));
+}
+
 function onMined(cell: number, x: number, y: number): void {
-  economy.currency += pixelValue(cell);
+  const revealRadius = 6 + 2 * abilityLevel(economy, "revealRadius");
+  world.reveal(x, y, revealRadius);
+  economy.currency += Math.ceil(pixelValue(cell) * biomeValueMul(biomeAt(x, y, world.seed)));
   stats.pixelsMined++;
   renderer.addBurst(x + 0.5, y + 0.5, cellColor(cell, x, y, world.seed));
   if (cell === CELL.UPGRADE) economy.upgradePoints++;
+
+  if (cell === CELL.TREASURE) {
+    const amount = Math.ceil(100 * (1 + 2 * edge(x, y)));
+    economy.currency += amount;
+    const [sx, sy] = worldToScreen(cam, canvas.width, canvas.height, x, y);
+    ui.showPopup?.("+" + amount, sx, sy);
+  }
+
+  if (cell === CELL.BOSS) {
+    const bossId = world.registerBossCellMined(x, y);
+    if (bossId !== -1) {
+      const amount = Math.ceil(2000 * (1 + edge(x, y)));
+      economy.currency += amount;
+      economy.upgradePoints += 3;
+      for (let dy = -6; dy <= 6; dy++) {
+        for (let dx = -6; dx <= 6; dx++) {
+          const cx = x + dx;
+          const cy = y + dy;
+          if (world.get(cx, cy) > 0) {
+            const destroyed = world.hit(cx, cy, 999);
+            if (destroyed) onMined(destroyed, cx, cy);
+          }
+        }
+      }
+      renderer.addBurst(x, y, "#c13bff");
+      renderer.addBurst(x, y, "#c13bff");
+      const [sx, sy] = worldToScreen(cam, canvas.width, canvas.height, x, y);
+      ui.showPopup?.("BOSS DOWN +" + amount, sx, sy);
+    }
+  }
+
   if (cell === CELL.GOLD && !stats.won) {
     stats.won = true;
     ui.showWin({
@@ -165,8 +328,8 @@ function buildAbilityStats(): AbilityStats {
     poisonSpread: 1 + abilityLevel(economy, "poisonSpread"),
     splitCount: 1 + abilityLevel(economy, "splitCount"),
     pierceDepth: 1 + abilityLevel(economy, "pierceDepth"),
-    moltenImmune: false,
-    darkSpeedMul: 1,
+    moltenImmune: abilityLevel(economy, "moltenImmunity") > 0,
+    darkSpeedMul: statMul(economy, "darkSpeed"),
   };
 }
 
@@ -221,6 +384,20 @@ function showErrorOverlay(): void {
 let last = performance.now();
 let acc = 0;
 let errorCount = 0;
+let radarAcc = 0;
+
+function updateRadar(dt: number): void {
+  radarAcc += dt;
+  if (radarAcc < RADAR_INTERVAL_S) return;
+  radarAcc -= RADAR_INTERVAL_S;
+  if (abilityLevel(economy, "radar") <= 0) return;
+  if (world.goldenIndex < 0) return;
+  const gx = world.goldenIndex % WORLD_W;
+  const gy = Math.floor(world.goldenIndex / WORLD_W);
+  const angle = Math.atan2(gy - cam.y, gx - cam.x);
+  const distance = Math.hypot(gx - cam.x, gy - cam.y);
+  ui.updateRadar?.(angle, distance);
+}
 
 function frame(now: number): void {
   try {
@@ -241,6 +418,8 @@ function frame(now: number): void {
     }
 
     updateCameraPan(dt);
+    updateRadar(dt);
+    renderer.showTreasurePulse = abilityLevel(economy, "treasureHunter") > 0;
     renderer.draw(cam, physics.balls, dt);
     ui.drawMinimap(cam);
     if (uiDirty) {

@@ -313,6 +313,10 @@ export class UI {
     return image;
   }
 
+  showPopup(text: string, x: number, y: number): void {}
+
+  updateRadar(angle: number, distance: number): void {}
+
   showWin(stats: WinStats): void {
     this.winOverlay.textContent = "";
 
