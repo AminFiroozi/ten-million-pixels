@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { World, CELL, WORLD_W } from "../src/world";
-import { diffWorld, applyDiff, clearSave, normalizeSave, SaveData } from "../src/save";
+import { diffWorld, applyDiff, clearSave, normalizeSave, loadGame, encodeExplored, decodeExplored, SaveData } from "../src/save";
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -106,5 +106,34 @@ describe("normalizeSave", () => {
     expect(normalized.stats.pixelsMined).toBe(0);
     expect(normalized.stats.startedAt).toBe(123);
     expect(normalized.stats.won).toBe(false);
+  });
+});
+
+describe("explored RLE", () => {
+  it("roundtrips", () => {
+    const mask = new Uint8Array(1000);
+    mask.fill(1, 10, 50);
+    mask.fill(1, 500, 501);
+    mask.fill(1, 990, 1000);
+    const runs = encodeExplored(mask);
+    expect(runs).toEqual([10, 40, 500, 1, 990, 10]);
+    const out = new Uint8Array(1000);
+    decodeExplored(runs, out);
+    expect(Array.from(out)).toEqual(Array.from(mask));
+  });
+  it("empty mask -> empty runs", () => {
+    expect(encodeExplored(new Uint8Array(100))).toEqual([]);
+  });
+});
+
+describe("v1 migration", () => {
+  it("v1 save loads as v2 with empty exploredRuns", () => {
+    const v1 = { version: 1, seed: 9, changes: [5, 0], currency: 10, upgradePoints: 1, upgrades: {}, ballsOwned: { white: 3 }, stats: { pixelsMined: 4, startedAt: 123, won: false } };
+    localStorage.setItem("tmp-save", JSON.stringify(v1));
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.version).toBe(2);
+    expect(loaded!.exploredRuns).toEqual([]);
+    expect(loaded!.currency).toBe(10);
   });
 });

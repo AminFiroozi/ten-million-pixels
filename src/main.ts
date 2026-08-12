@@ -1,5 +1,5 @@
 import { World, CELL } from "./world";
-import { SaveData, diffWorld, applyDiff, saveGame, loadGame, clearSave, normalizeSave } from "./save";
+import { SaveData, diffWorld, applyDiff, saveGame, loadGame, clearSave, normalizeSave, encodeExplored } from "./save";
 import { EconomyState, BallType, BALL_ORDER, newEconomy, pixelValue, statMul, abilityLevel } from "./economy";
 import { Physics, AbilityStats } from "./physics";
 import { Renderer, Camera, screenToWorld, cellColor } from "./render";
@@ -173,7 +173,7 @@ let savingDisabled = false;
 function doSave(): void {
   if (savingDisabled) return;
   const data: SaveData = {
-    version: 1,
+    version: 2,
     seed: world.seed,
     changes: diffWorld(world),
     currency: economy.currency,
@@ -181,6 +181,7 @@ function doSave(): void {
     upgrades: economy.upgrades,
     ballsOwned: economy.ballsOwned,
     stats,
+    exploredRuns: encodeExplored(world.explored),
   };
   saveGame(data);
 }
