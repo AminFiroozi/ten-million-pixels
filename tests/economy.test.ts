@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { newEconomy, ballCost, buyBall, buyUpgrade, isUnlocked, statMul, pixelValue, UPGRADE_TREE, nextBallCost } from "../src/economy";
+import { newEconomy, ballCost, buyBall, buyUpgrade, isUnlocked, statMul, pixelValue, UPGRADE_TREE, nextBallCost, abilityLevel, NODE_LAYOUT } from "../src/economy";
 import { CELL } from "../src/world";
 
 describe("economy", () => {
@@ -51,5 +51,28 @@ describe("economy", () => {
     expect(pixelValue(CELL.SOFT)).toBe(1);
     expect(pixelValue(CELL.MED)).toBe(2);
     expect(pixelValue(CELL.HARD)).toBe(4);
+  });
+});
+
+describe("depths tree nodes", () => {
+  it("new nodes exist with prereq chains", () => {
+    const s = newEconomy();
+    s.upgradePoints = 100;
+    expect(buyUpgrade(s, "reveal_radius_2")).toBe(false);
+    expect(buyUpgrade(s, "reveal_radius_1")).toBe(true);
+    expect(buyUpgrade(s, "reveal_radius_2")).toBe(true);
+    expect(abilityLevel(s, "revealRadius")).toBe(2);
+    expect(buyUpgrade(s, "launch_wave")).toBe(true);
+    expect(abilityLevel(s, "launchWave")).toBe(1);
+    expect(buyUpgrade(s, "launch_speed")).toBe(true);
+    expect(statMul(s, "launchSpeed")).toBeCloseTo(1.1);
+    expect(buyUpgrade(s, "molten_immunity")).toBe(true);
+    expect(abilityLevel(s, "moltenImmunity")).toBe(1);
+    expect(buyUpgrade(s, "molten_immunity")).toBe(false);
+    expect(buyUpgrade(s, "dark_speed")).toBe(true);
+    expect(statMul(s, "darkSpeed")).toBeCloseTo(1.15);
+  });
+  it("every tree node has a layout entry", () => {
+    for (const n of UPGRADE_TREE) expect(NODE_LAYOUT[n.id]).toBeDefined();
   });
 });

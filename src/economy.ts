@@ -58,7 +58,40 @@ export const UPGRADE_TREE: UpgradeNode[] = [
   { id: "poisonSpread", name: "Poison Spread", desc: "Increases green ball poison spread", cost: 8, max: 3, requires: "unlock_green", stat: "poisonSpread", amount: 1 },
   { id: "splitCount", name: "Split Count", desc: "Increases orange ball split count", cost: 10, max: 2, requires: "unlock_orange", stat: "splitCount", amount: 1 },
   { id: "pierceDepth", name: "Pierce Depth", desc: "Increases yellow ball pierce depth", cost: 8, max: 3, requires: "unlock_yellow", stat: "pierceDepth", amount: 1 },
+  { id: "launch_wave", name: "Bigger Waves", desc: "Launch more balls per click", cost: 3, max: 3, stat: "launchWave", amount: 10 },
+  { id: "launch_speed", name: "Launch Speed", desc: "Increases ball launch speed", cost: 2, max: 3, stat: "launchSpeed", amount: 0.1 },
+  { id: "treasure_hunter", name: "Treasure Hunter", desc: "Reveals nearby gold deposits", cost: 3, max: 1, stat: "treasureHunter" },
+  { id: "reveal_radius_1", name: "Wider Reveal I", desc: "Increases dig reveal radius", cost: 2, max: 3, stat: "revealRadius", amount: 2 },
+  { id: "reveal_radius_2", name: "Wider Reveal II", desc: "Further increases dig reveal radius", cost: 3, max: 3, requires: "reveal_radius_1", stat: "revealRadius", amount: 2 },
+  { id: "radar", name: "Radar", desc: "Highlights hidden objects nearby", cost: 4, max: 1, stat: "radar" },
+  { id: "molten_immunity", name: "Molten Immunity", desc: "Balls are immune to molten damage", cost: 4, max: 1, stat: "moltenImmunity" },
+  { id: "dark_speed", name: "Dark Speed", desc: "Increases ball speed in dark zones", cost: 3, max: 2, stat: "darkSpeed", amount: 0.15 },
 ];
+
+export const NODE_LAYOUT: Record<string, { col: number; row: number; branch: "ball" | "launcher" | "discovery" | "survival" }> = {
+  unlock_blue: { col: 1, row: 0, branch: "ball" },
+  unlock_red: { col: 2, row: 0, branch: "ball" },
+  unlock_green: { col: 3, row: 0, branch: "ball" },
+  unlock_orange: { col: 4, row: 0, branch: "ball" },
+  unlock_yellow: { col: 5, row: 0, branch: "ball" },
+  unlock_purple: { col: 6, row: 0, branch: "ball" },
+  smashRadius: { col: 2, row: 1, branch: "ball" },
+  poisonSpread: { col: 3, row: 1, branch: "ball" },
+  splitCount: { col: 4, row: 1, branch: "ball" },
+  pierceDepth: { col: 5, row: 1, branch: "ball" },
+  speed_1: { col: 0, row: 1, branch: "ball" },
+  speed_2: { col: 0, row: 2, branch: "ball" },
+  damage_1: { col: 0, row: 3, branch: "ball" },
+  damage_2: { col: 0, row: 4, branch: "ball" },
+  launch_wave: { col: 7, row: 0, branch: "launcher" },
+  launch_speed: { col: 7, row: 1, branch: "launcher" },
+  reveal_radius_1: { col: 8, row: 0, branch: "discovery" },
+  reveal_radius_2: { col: 8, row: 1, branch: "discovery" },
+  radar: { col: 8, row: 2, branch: "discovery" },
+  treasure_hunter: { col: 8, row: 3, branch: "discovery" },
+  molten_immunity: { col: 9, row: 0, branch: "survival" },
+  dark_speed: { col: 9, row: 1, branch: "survival" },
+};
 
 export function newEconomy(): EconomyState {
   const ballsOwned = {} as Record<BallType, number>;
@@ -124,7 +157,7 @@ export function buyUpgrade(s: EconomyState, id: string): boolean {
   return true;
 }
 
-export function statMul(s: EconomyState, stat: "speed" | "damage"): number {
+export function statMul(s: EconomyState, stat: string): number {
   let total = 0;
   for (const node of UPGRADE_TREE) {
     if (node.stat === stat) {
@@ -136,7 +169,9 @@ export function statMul(s: EconomyState, stat: "speed" | "damage"): number {
 }
 
 export function abilityLevel(s: EconomyState, stat: string): number {
-  const node = UPGRADE_TREE.find(n => n.stat === stat);
-  if (!node) return 0;
-  return s.upgrades[node.id] ?? 0;
+  let total = 0;
+  for (const node of UPGRADE_TREE) {
+    if (node.stat === stat) total += s.upgrades[node.id] ?? 0;
+  }
+  return total;
 }
