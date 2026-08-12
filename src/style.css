@@ -116,10 +116,6 @@
   padding: 8px;
 }
 
-.upgrade-panel.hidden {
-  display: none;
-}
-
 .upgrade-panel-close {
   position: absolute;
   top: 6px;
@@ -189,7 +185,7 @@
   }
 }
 
-.upgrade-node-abbrev {
+.upgrade-node-label {
   font-size: 8px;
 }
 
@@ -276,7 +272,7 @@
   font-size: 11px;
   padding: 4px 8px;
   cursor: pointer;
-  min-height: 32px;
+  min-height: 44px;
 }
 
 .popup {
@@ -313,10 +309,6 @@
   justify-content: center;
   z-index: 12;
   pointer-events: none;
-}
-
-.radar.hidden {
-  display: none;
 }
 
 .radar-arrow {

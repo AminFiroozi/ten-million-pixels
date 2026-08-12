@@ -283,7 +283,7 @@ export class UI {
       btn.title = node.desc;
 
       const label = document.createElement("div");
-      label.className = "upgrade-node-abbrev";
+      label.className = "upgrade-node-label";
       label.textContent = nodeShortLabel(node);
 
       const level = document.createElement("div");

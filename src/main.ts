@@ -421,6 +421,7 @@ function frame(now: number): void {
     updateCameraPan(dt);
     updateRadar(dt);
     renderer.showTreasurePulse = abilityLevel(economy, "treasureHunter") > 0;
+    ui.treasurePings = abilityLevel(economy, "treasureHunter") > 0;
     renderer.draw(cam, physics.balls, dt);
     ui.drawMinimap(cam);
     if (uiDirty) {
