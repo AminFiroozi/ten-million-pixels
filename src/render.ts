@@ -1,7 +1,8 @@
-import { World, WORLD_W, WORLD_H, CELL } from "./world";
+import { World, WORLD_W, WORLD_H, CELL, CELL_HP } from "./world";
 import { hashCoords } from "./rng";
 import { Ball } from "./physics";
 import { BallType } from "./economy";
+import { Biome, biomeAt } from "./biomes";
 
 export interface Camera {
   x: number;
@@ -22,6 +23,7 @@ export const BALL_COLORS: Record<BallType, string> = {
 };
 
 const BG_COLOR = "#050a06";
+const FOG_COLOR = "#070b08";
 const SPRITE_SIZE = 16;
 const BALL_RADIUS = 3;
 const GLOW_BLUR = 8;
@@ -55,8 +57,7 @@ export function screenToWorld(cam: Camera, w: number, h: number, sx: number, sy:
   return [x, y];
 }
 
-export function cellColor(cell: number, x: number, y: number, seed: number): string {
-  const t = hashCoords(x, y, seed);
+function verdantTerrain(cell: number, t: number): string {
   switch (cell) {
     case CELL.SOFT: {
       if (t < 0.34) return `hsl(${100 + t * 40}, 90%, 55%)`;
@@ -68,17 +69,144 @@ export function cellColor(cell: number, x: number, y: number, seed: number): str
       if (t < 0.67) return `hsl(${25 + t * 20}, 75%, 32%)`;
       return `hsl(${5 + t * 15}, 70%, 32%)`;
     }
-    case CELL.HARD:
+    default:
       return `hsl(${100 + t * 20}, 15%, ${28 + t * 10}%)`;
+  }
+}
+
+function crystalTerrain(cell: number, t: number): string {
+  switch (cell) {
+    case CELL.SOFT: {
+      if (t < 0.34) return `hsl(${185 + t * 20}, 90%, 65%)`;
+      if (t < 0.67) return `hsl(${195 + t * 20}, 85%, 55%)`;
+      return `hsl(${170 + t * 15}, 70%, 50%)`;
+    }
+    case CELL.MED: {
+      if (t < 0.34) return `hsl(${185 + t * 20}, 70%, 38%)`;
+      if (t < 0.67) return `hsl(${195 + t * 20}, 65%, 32%)`;
+      return `hsl(${170 + t * 15}, 55%, 28%)`;
+    }
+    default:
+      return `hsl(${195 + t * 20}, 30%, ${28 + t * 10}%)`;
+  }
+}
+
+function moltenTerrain(cell: number, t: number): string {
+  switch (cell) {
+    case CELL.SOFT: {
+      if (t < 0.34) return `hsl(${10 + t * 20}, 95%, 58%)`;
+      if (t < 0.67) return `hsl(${5 + t * 15}, 90%, 45%)`;
+      return `hsl(${15 + t * 10}, 85%, 30%)`;
+    }
+    case CELL.MED: {
+      if (t < 0.34) return `hsl(${10 + t * 20}, 80%, 35%)`;
+      if (t < 0.67) return `hsl(${5 + t * 15}, 75%, 28%)`;
+      return `hsl(${15 + t * 10}, 70%, 20%)`;
+    }
+    default:
+      return `hsl(${10 + t * 15}, 60%, ${18 + t * 8}%)`;
+  }
+}
+
+function ruinsTerrain(cell: number, t: number): string {
+  switch (cell) {
+    case CELL.SOFT: {
+      if (t < 0.34) return `hsl(${30 + t * 20}, 25%, 70%)`;
+      if (t < 0.67) return `hsl(${35 + t * 15}, 20%, 60%)`;
+      return `hsl(${45 + t * 10}, 15%, 50%)`;
+    }
+    case CELL.MED: {
+      if (t < 0.34) return `hsl(${30 + t * 20}, 20%, 45%)`;
+      if (t < 0.67) return `hsl(${35 + t * 15}, 18%, 38%)`;
+      return `hsl(${45 + t * 10}, 15%, 32%)`;
+    }
+    default:
+      return `hsl(${35 + t * 15}, 12%, ${22 + t * 8}%)`;
+  }
+}
+
+function terrainColor(cell: number, biome: Biome, t: number): string {
+  switch (biome) {
+    case "crystal":
+      return crystalTerrain(cell, t);
+    case "molten":
+      return moltenTerrain(cell, t);
+    case "ruins":
+      return ruinsTerrain(cell, t);
+    default:
+      return verdantTerrain(cell, t);
+  }
+}
+
+export function cellColor(cell: number, x: number, y: number, seed: number): string {
+  const t = hashCoords(x, y, seed);
+  switch (cell) {
+    case CELL.SOFT:
+    case CELL.MED:
+    case CELL.HARD:
+      return terrainColor(cell, biomeAt(x, y, seed), t);
     case CELL.UPGRADE:
       return "#fffbe0";
     case CELL.GOLD:
       return "#ffd700";
     case CELL.OBJECT:
       return "#ffffff";
+    case CELL.TREASURE:
+      return "#ffd75e";
+    case CELL.BOSS:
+      return "#c13bff";
     default:
       return "";
   }
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  let h = hex.replace("#", "");
+  if (h.length === 3) h = h.split("").map(c => c + c).join("");
+  const num = parseInt(h, 16);
+  return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+}
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  const hue = ((h % 360) + 360) % 360;
+  const sat = s / 100;
+  const light = l / 100;
+  const c = (1 - Math.abs(2 * light - 1)) * sat;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = light - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (hue < 60) { r = c; g = x; b = 0; }
+  else if (hue < 120) { r = x; g = c; b = 0; }
+  else if (hue < 180) { r = 0; g = c; b = x; }
+  else if (hue < 240) { r = 0; g = x; b = c; }
+  else if (hue < 300) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+}
+
+export function darken(hex: string, f: number): string {
+  const hslMatch = hex.match(/^hsl\(\s*([-\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)$/);
+  const [r, g, b] = hslMatch
+    ? hslToRgb(parseFloat(hslMatch[1]), parseFloat(hslMatch[2]), parseFloat(hslMatch[3]))
+    : hexToRgb(hex);
+  const k = 1 - f;
+  return `rgb(${Math.round(r * k)}, ${Math.round(g * k)}, ${Math.round(b * k)})`;
+}
+
+function isDamageTintable(cell: number): boolean {
+  return cell === CELL.SOFT || cell === CELL.MED || cell === CELL.HARD ||
+    cell === CELL.OBJECT || cell === CELL.TREASURE || cell === CELL.BOSS;
+}
+
+function paintedColor(world: World, cell: number, x: number, y: number): string {
+  let color = cellColor(cell, x, y, world.seed);
+  if (isDamageTintable(cell)) {
+    const damage = world.damageAt(x, y);
+    if (damage > 0) {
+      color = darken(color, Math.min(0.65, (0.65 * damage) / CELL_HP[cell]));
+    }
+  }
+  return color;
 }
 
 type CanvasLike = HTMLCanvasElement | OffscreenCanvas;
@@ -120,6 +248,7 @@ interface Chunk {
 }
 
 export class Renderer {
+  showTreasurePulse: boolean = false;
   private world: World;
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -217,12 +346,16 @@ export class Renderer {
     const y1 = Math.min(WORLD_H, y0 + CHUNK);
     for (let y = y0; y < y1; y++) {
       for (let x = x0; x < x1; x++) {
+        if (!this.world.isExplored(x, y)) {
+          ctx.fillStyle = FOG_COLOR;
+          ctx.fillRect(x - x0, y - y0, 1, 1);
+          continue;
+        }
         const cell = this.world.get(x, y);
         if (cell <= CELL.EMPTY) continue;
-        const color = cellColor(cell, x, y, this.world.seed);
-        ctx.fillStyle = color;
+        ctx.fillStyle = paintedColor(this.world, cell, x, y);
         ctx.fillRect(x - x0, y - y0, 1, 1);
-        if (cell === CELL.UPGRADE || cell === CELL.GOLD) {
+        if (cell === CELL.UPGRADE || cell === CELL.GOLD || cell === CELL.TREASURE) {
           chunk.pulseCells.push({ x, y, cell });
         }
       }
@@ -232,7 +365,7 @@ export class Renderer {
   private updatePulseCell(chunk: Chunk, x: number, y: number, cell: number): void {
     const idx = chunk.pulseCells.findIndex(p => p.x === x && p.y === y);
     if (idx !== -1) chunk.pulseCells.splice(idx, 1);
-    if (cell === CELL.UPGRADE || cell === CELL.GOLD) {
+    if (cell === CELL.UPGRADE || cell === CELL.GOLD || cell === CELL.TREASURE) {
       chunk.pulseCells.push({ x, y, cell });
     }
   }
@@ -251,9 +384,15 @@ export class Renderer {
       const lx = x - x0;
       const ly = y - y0;
       ctx.clearRect(lx, ly, 1, 1);
+      if (!this.world.isExplored(x, y)) {
+        ctx.fillStyle = FOG_COLOR;
+        ctx.fillRect(lx, ly, 1, 1);
+        this.updatePulseCell(chunk, x, y, -1);
+        continue;
+      }
       const cell = this.world.get(x, y);
       if (cell > CELL.EMPTY) {
-        ctx.fillStyle = cellColor(cell, x, y, this.world.seed);
+        ctx.fillStyle = paintedColor(this.world, cell, x, y);
         ctx.fillRect(lx, ly, 1, 1);
       }
       this.updatePulseCell(chunk, x, y, cell);
@@ -316,10 +455,11 @@ export class Renderer {
         const chunk = this.chunks.get(id);
         if (!chunk || chunk.pulseCells.length === 0) continue;
         for (const p of chunk.pulseCells) {
+          if (p.cell === CELL.TREASURE && !this.showTreasurePulse) continue;
           if (this.world.get(p.x, p.y) !== p.cell) continue;
           const [sx, sy] = worldToScreen(cam, w, h, p.x, p.y);
           ctx.globalAlpha = alpha;
-          ctx.fillStyle = p.cell === CELL.GOLD ? "#fff7c0" : "#ffffff";
+          ctx.fillStyle = p.cell === CELL.GOLD ? "#fff7c0" : p.cell === CELL.TREASURE ? "#ffe9a8" : "#ffffff";
           ctx.fillRect(sx, sy, cam.zoom, cam.zoom);
         }
       }
