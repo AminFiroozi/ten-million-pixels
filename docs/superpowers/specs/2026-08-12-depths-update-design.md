@@ -50,12 +50,24 @@ Hardness/value modifiers applied at generation (hardness) and at mining time (va
 ### Skill tree v2
 
 - Panel redesign: tiered node graph (DOM nodes absolutely positioned + SVG `<line>` connectors). Lines dim when locked, lit when prerequisite bought. Nodes: colored ring per branch, glow-pulse when affordable, level pips.
-- Branches (all existing nodes preserved, ids unchanged):
-  - Per-ball branches (existing unlock + ability nodes, laid out as 7 columns)
-  - Economy: `pixel_value_1/2` (+10% per level, max 5, chained), `treasure_hunter` (treasure cells ping on minimap, max 1)
-  - Discovery: `reveal_radius_1/2` (+2 per level, max 3, chained), `radar` (golden-pixel compass, max 1), 
+- Ball-centric tree (user direction: tree is about balls, not pixels):
+  - Per-ball branches (existing unlock + ability nodes, laid out as 7 columns) — the core of the tree
+  - Launcher: `launch_wave` (+10 balls per click wave, max 3), `launch_speed` (+10% initial ball speed per level, max 3)
+  - Discovery: `reveal_radius_1/2` (+2 per level, max 3, chained), `radar` (golden-pixel compass, max 1), `treasure_hunter` (treasure cells ping on minimap, max 1)
   - Survival: `molten_immunity` (max 1), `dark_speed` (+15% ball speed in unexplored cells per level, max 2)
+  - No pixel-value nodes.
 - Upgrade points economy: existing sources + bosses (+3) keep the bigger tree affordable.
+
+### Damage feedback on pixels
+
+Partially damaged pixels visibly darken: when a hit does not destroy a cell, the renderer repaints it blended toward near-black proportional to `accumulatedDamage / hp` (up to ~65% darkening). Requires a `world.onCellDamaged?: (x, y) => void` callback (fired on non-destroying hits) wired to the renderer's dirty-cell patch path, and renderer access to the damage map.
+
+### Mobile support
+
+- `<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">`
+- Touch input: tap = launch wave toward tap point; one-finger drag past 12px threshold = camera pan; two-finger pinch = zoom (toward pinch center); no hover-dependent features required for play (tooltips: tap node shows tooltip, second tap buys).
+- Responsive UI (CSS, max-width 700px breakpoint): shop bar horizontally scrollable with larger touch targets (min 44px), upgrade panel becomes full-screen overlay with close button, HUD scales down, minimap smaller (120x75), pinned New Run stays reachable.
+- Canvas continues to size to window.innerWidth/Height (no DPR scaling).
 
 ### Always-available New Run
 
