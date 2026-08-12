@@ -302,8 +302,9 @@ function onMined(cell: number, x: number, y: number): void {
           }
         }
       }
-      renderer.addBurst(x, y, "#c13bff");
-      renderer.addBurst(x, y, "#c13bff");
+      for (let i = 0; i < 6; i++) {
+        renderer.addBurst(x, y, "#c13bff");
+      }
       const [sx, sy] = worldToScreen(cam, canvas.width, canvas.height, x, y);
       ui.showPopup?.("BOSS DOWN +" + amount, sx, sy);
     }
