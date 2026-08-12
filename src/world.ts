@@ -121,6 +121,7 @@ export class World {
   }
 
   registerBossCellMined(x: number, y: number): number {
+    if (!this.inBounds(x, y)) return -1;
     const i = this.idx(x, y);
     const id = this.bossMap.get(i);
     if (id === undefined) return -1;

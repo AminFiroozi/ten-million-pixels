@@ -125,6 +125,17 @@ describe("treasure and bosses", () => {
     }
     expect(w2.registerBossCellMined(0, 0)).toBe(-1);
   });
+  it("registerBossCellMined rejects out-of-bounds coords without touching state", () => {
+    const w3 = World.generate(1234);
+    const sizeBefore = w3.bossMap.size;
+    const remainingBefore = w3.bossRemaining.slice();
+    expect(w3.registerBossCellMined(WORLD_W, 0)).toBe(-1);
+    expect(w3.registerBossCellMined(-1, 0)).toBe(-1);
+    expect(w3.registerBossCellMined(0, WORLD_H)).toBe(-1);
+    expect(w3.registerBossCellMined(0, -1)).toBe(-1);
+    expect(w3.bossMap.size).toBe(sizeBefore);
+    expect(w3.bossRemaining).toEqual(remainingBefore);
+  });
   it("generation deterministic with new content", () => {
     const a = World.generate(42), b = World.generate(42);
     expect(Array.from(a.cells)).toEqual(Array.from(b.cells));
