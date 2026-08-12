@@ -1,4 +1,16 @@
-import { EconomyState, BallType, BALL_ORDER, buyBall, buyUpgrade, isUnlocked, nextBallCost, UPGRADE_TREE, UpgradeNode, statMul } from "./economy";
+import {
+  EconomyState,
+  BallType,
+  BALL_ORDER,
+  buyBall,
+  buyUpgrade,
+  isUnlocked,
+  nextBallCost,
+  UPGRADE_TREE,
+  UpgradeNode,
+  NODE_LAYOUT,
+  statMul,
+} from "./economy";
 import { World, CELL } from "./world";
 import { Camera, BALL_COLORS } from "./render";
 import "./style.css";
@@ -7,6 +19,22 @@ const MINIMAP_W = 160;
 const MINIMAP_H = 100;
 const MINIMAP_SAMPLE = 8;
 const MINIMAP_REFRESH_MS = 500;
+
+const SKILL_TREE_COL_W = 60;
+const SKILL_TREE_ROW_H = 64;
+const NODE_PAD = 12;
+const NODE_SIZE = 44;
+
+const LAUNCHER_COLOR = "#8cf";
+const DISCOVERY_COLOR = "#6ec6ff";
+const SURVIVAL_COLOR = "#ff8a5c";
+const NEUTRAL_COLOR = "#888";
+
+const NEW_RUN_CONFIRM_MS = 5000;
+const POPUP_LIFETIME_MS = 1200;
+const POPUP_MAX = 20;
+const RADAR_PULSE_MS = 300;
+const TOUCH_TAP_WINDOW_MS = 3000;
 
 interface WinStats {
   pixelsMined: number;
@@ -33,18 +61,37 @@ function nodeBallType(node: UpgradeNode): BallType | undefined {
 }
 
 function nodeColor(node: UpgradeNode): string {
+  const layout = NODE_LAYOUT[node.id];
+  const branch = layout?.branch;
+  if (branch === "launcher") return LAUNCHER_COLOR;
+  if (branch === "discovery") return DISCOVERY_COLOR;
+  if (branch === "survival") return SURVIVAL_COLOR;
   const t = nodeBallType(node);
-  return t ? BALL_COLORS[t] : "#7dff9a";
+  return t ? BALL_COLORS[t] : NEUTRAL_COLOR;
 }
 
-function nodeAbbrev(node: UpgradeNode): string {
-  return node.name
-    .split(" ")
-    .map(w => w.charAt(0))
-    .join("")
-    .toUpperCase()
-    .slice(0, 3);
+function nodeShortLabel(node: UpgradeNode): string {
+  return node.name.slice(0, 6);
 }
+
+function nodeCenter(layout: { col: number; row: number }): [number, number] {
+  return [layout.col * SKILL_TREE_COL_W + NODE_PAD + NODE_SIZE / 2, layout.row * SKILL_TREE_ROW_H + NODE_PAD + NODE_SIZE / 2];
+}
+
+function computeTreeSize(): [number, number] {
+  let maxCol = 0;
+  let maxRow = 0;
+  for (const id in NODE_LAYOUT) {
+    const l = NODE_LAYOUT[id];
+    if (l.col > maxCol) maxCol = l.col;
+    if (l.row > maxRow) maxRow = l.row;
+  }
+  const w = Math.max(640, (maxCol + 1) * SKILL_TREE_COL_W + NODE_PAD * 2);
+  const h = Math.max(480, (maxRow + 1) * SKILL_TREE_ROW_H + NODE_PAD * 2);
+  return [w, h];
+}
+
+const [SKILL_TREE_W, SKILL_TREE_H] = computeTreeSize();
 
 function minimapColor(cell: number): [number, number, number] {
   switch (cell) {
@@ -65,6 +112,12 @@ function minimapColor(cell: number): [number, number, number] {
   }
 }
 
+function radarColor(distance: number): string {
+  if (distance > 600) return "#6ec6ff";
+  if (distance >= 300) return "#ffd75e";
+  return "#ff5c5c";
+}
+
 function formatTime(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   const m = Math.floor(s / 60);
@@ -75,10 +128,12 @@ function formatTime(totalSeconds: number): string {
 export class UI {
   private economy: EconomyState;
   private world: World;
+  private root: HTMLElement;
 
   onBuyBall?: (t: BallType) => void;
   onNewRun?: () => void;
   pixelsMined = 0;
+  treasurePings = false;
 
   private currencyEl: HTMLElement;
   private upgradePointsEl: HTMLElement;
@@ -88,7 +143,11 @@ export class UI {
 
   private upgradePanel: HTMLElement;
   private upgradeButtons: Map<string, HTMLButtonElement>;
+  private edgeLines: Map<string, SVGLineElement>;
   private tooltip: HTMLElement;
+  private touchCapable: boolean;
+  private lastTapNode: string | null;
+  private lastTapTime: number;
 
   private minimapCanvas: HTMLCanvasElement;
   private minimapCtx: CanvasRenderingContext2D;
@@ -97,13 +156,28 @@ export class UI {
 
   private winOverlay: HTMLElement;
 
+  private popups: HTMLElement[];
+
+  private radarEl: HTMLElement | null;
+  private radarArrow: HTMLElement | null;
+  private radarPulseTimer: number | null;
+
   constructor(root: HTMLElement, economy: EconomyState, world: World) {
     this.economy = economy;
     this.world = world;
+    this.root = root;
     this.shopRows = new Map();
     this.upgradeButtons = new Map();
+    this.edgeLines = new Map();
     this.minimapCache = null;
     this.minimapCacheTime = -Infinity;
+    this.touchCapable = "ontouchstart" in window;
+    this.lastTapNode = null;
+    this.lastTapTime = 0;
+    this.popups = [];
+    this.radarEl = null;
+    this.radarArrow = null;
+    this.radarPulseTimer = null;
 
     const hud = document.createElement("div");
     hud.className = "hud-topleft";
@@ -160,34 +234,73 @@ export class UI {
 
     this.upgradePanel = document.createElement("div");
     this.upgradePanel.className = "upgrade-panel hidden";
+
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "upgrade-panel-close";
+    closeBtn.textContent = "X";
+    closeBtn.addEventListener("click", () => this.toggleUpgradePanel());
+    this.upgradePanel.appendChild(closeBtn);
+
+    const skillTree = document.createElement("div");
+    skillTree.className = "skill-tree";
+    skillTree.style.width = `${SKILL_TREE_W}px`;
+    skillTree.style.height = `${SKILL_TREE_H}px`;
+
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg") as SVGSVGElement;
+    svg.classList.add("skill-tree-svg");
+    svg.setAttribute("width", `${SKILL_TREE_W}`);
+    svg.setAttribute("height", `${SKILL_TREE_H}`);
+    skillTree.appendChild(svg);
+
     for (const node of UPGRADE_TREE) {
+      if (!node.requires) continue;
+      const parentLayout = NODE_LAYOUT[node.requires];
+      const childLayout = NODE_LAYOUT[node.id];
+      if (!parentLayout || !childLayout) continue;
+      const line = document.createElementNS(svgNS, "line") as SVGLineElement;
+      const [px, py] = nodeCenter(parentLayout);
+      const [cx, cy] = nodeCenter(childLayout);
+      line.setAttribute("x1", `${px}`);
+      line.setAttribute("y1", `${py}`);
+      line.setAttribute("x2", `${cx}`);
+      line.setAttribute("y2", `${cy}`);
+      line.setAttribute("stroke-width", "2");
+      line.setAttribute("stroke", "#123");
+      svg.appendChild(line);
+      this.edgeLines.set(node.id, line);
+    }
+
+    for (const node of UPGRADE_TREE) {
+      const layout = NODE_LAYOUT[node.id];
       const btn = document.createElement("button");
       btn.className = "upgrade-node";
       btn.style.setProperty("--node-color", nodeColor(node));
+      if (layout) {
+        btn.style.left = `${layout.col * SKILL_TREE_COL_W + NODE_PAD}px`;
+        btn.style.top = `${layout.row * SKILL_TREE_ROW_H + NODE_PAD}px`;
+      }
       btn.title = node.desc;
 
-      const abbrev = document.createElement("div");
-      abbrev.className = "upgrade-node-abbrev";
-      abbrev.textContent = nodeAbbrev(node);
+      const label = document.createElement("div");
+      label.className = "upgrade-node-abbrev";
+      label.textContent = nodeShortLabel(node);
 
       const level = document.createElement("div");
       level.className = "upgrade-node-level";
 
-      btn.appendChild(abbrev);
+      btn.appendChild(label);
       btn.appendChild(level);
 
       btn.addEventListener("mouseenter", () => this.showTooltip(btn, node));
       btn.addEventListener("mouseleave", () => this.hideTooltip());
-      btn.addEventListener("click", () => {
-        if (buyUpgrade(this.economy, node.id)) {
-          this.update();
-          this.showTooltip(btn, node);
-        }
-      });
+      btn.addEventListener("click", () => this.handleNodeClick(btn, node));
 
-      this.upgradePanel.appendChild(btn);
+      skillTree.appendChild(btn);
       this.upgradeButtons.set(node.id, btn);
     }
+
+    this.upgradePanel.appendChild(skillTree);
     root.appendChild(this.upgradePanel);
 
     this.tooltip = document.createElement("div");
@@ -201,6 +314,7 @@ export class UI {
     const minimapWrap = document.createElement("div");
     minimapWrap.className = "minimap-wrap";
     this.minimapCanvas = document.createElement("canvas");
+    this.minimapCanvas.className = "minimap-canvas";
     this.minimapCanvas.width = MINIMAP_W;
     this.minimapCanvas.height = MINIMAP_H;
     const ctx = this.minimapCanvas.getContext("2d");
@@ -209,11 +323,76 @@ export class UI {
     minimapWrap.appendChild(this.minimapCanvas);
     root.appendChild(minimapWrap);
 
+    const newRunPinned = document.createElement("div");
+    newRunPinned.className = "new-run-pinned";
+
+    const newRunBtn = document.createElement("button");
+    newRunBtn.className = "new-run-btn";
+    newRunBtn.textContent = "NEW RUN";
+
+    const confirmRow = document.createElement("div");
+    confirmRow.className = "new-run-confirm hidden";
+    const confirmLabel = document.createElement("span");
+    confirmLabel.textContent = "SURE?";
+    const yesBtn = document.createElement("button");
+    yesBtn.className = "new-run-yes";
+    yesBtn.textContent = "YES";
+    const noBtn = document.createElement("button");
+    noBtn.className = "new-run-no";
+    noBtn.textContent = "NO";
+    confirmRow.appendChild(confirmLabel);
+    confirmRow.appendChild(yesBtn);
+    confirmRow.appendChild(noBtn);
+
+    newRunPinned.appendChild(newRunBtn);
+    newRunPinned.appendChild(confirmRow);
+    root.appendChild(newRunPinned);
+
+    let newRunTimer: number | null = null;
+    const revertNewRun = () => {
+      confirmRow.classList.add("hidden");
+      newRunBtn.classList.remove("hidden");
+      if (newRunTimer !== null) {
+        window.clearTimeout(newRunTimer);
+        newRunTimer = null;
+      }
+    };
+    newRunBtn.addEventListener("click", () => {
+      newRunBtn.classList.add("hidden");
+      confirmRow.classList.remove("hidden");
+      newRunTimer = window.setTimeout(revertNewRun, NEW_RUN_CONFIRM_MS);
+    });
+    yesBtn.addEventListener("click", () => {
+      revertNewRun();
+      this.onNewRun?.();
+    });
+    noBtn.addEventListener("click", () => revertNewRun());
+
     this.winOverlay = document.createElement("div");
     this.winOverlay.className = "win-overlay hidden";
     root.appendChild(this.winOverlay);
 
     this.update();
+  }
+
+  private handleNodeClick(btn: HTMLButtonElement, node: UpgradeNode): void {
+    if (this.touchCapable) {
+      const now = performance.now();
+      if (this.lastTapNode === node.id && now - this.lastTapTime < TOUCH_TAP_WINDOW_MS) {
+        if (buyUpgrade(this.economy, node.id)) this.update();
+        this.lastTapNode = null;
+        this.hideTooltip();
+        return;
+      }
+      this.showTooltip(btn, node);
+      this.lastTapNode = node.id;
+      this.lastTapTime = now;
+      return;
+    }
+    if (buyUpgrade(this.economy, node.id)) {
+      this.update();
+      this.showTooltip(btn, node);
+    }
   }
 
   private toggleUpgradePanel(): void {
@@ -266,7 +445,17 @@ export class UI {
       if (levelEl) levelEl.textContent = `${level}/${node.max}`;
       const requiresMet = !node.requires || (this.economy.upgrades[node.requires] ?? 0) > 0;
       const affordable = this.economy.upgradePoints >= node.cost;
-      btn.disabled = level >= node.max || !requiresMet || !affordable;
+      const buyable = level < node.max && requiresMet && affordable;
+      btn.disabled = !buyable;
+      btn.classList.toggle("affordable", buyable);
+
+      if (node.requires) {
+        const line = this.edgeLines.get(node.id);
+        if (line) {
+          const parentLevel = this.economy.upgrades[node.requires] ?? 0;
+          line.setAttribute("stroke", parentLevel > 0 ? "#2a4" : "#123");
+        }
+      }
     }
   }
 
@@ -277,6 +466,10 @@ export class UI {
       this.minimapCacheTime = now;
     }
     this.minimapCtx.putImageData(this.minimapCache, 0, 0);
+
+    if (this.treasurePings) {
+      this.drawTreasurePings();
+    }
 
     const viewWorldW = window.innerWidth / cam.zoom;
     const viewWorldH = window.innerHeight / cam.zoom;
@@ -296,14 +489,38 @@ export class UI {
     ctx.strokeRect(rectX + 0.5, rectY + 0.5, rectW, rectH);
   }
 
+  private drawTreasurePings(): void {
+    const ctx = this.minimapCtx;
+    ctx.fillStyle = "#ffd75e";
+    for (let y = 0; y < MINIMAP_H; y++) {
+      for (let x = 0; x < MINIMAP_W; x++) {
+        const wx = x * MINIMAP_SAMPLE;
+        const wy = y * MINIMAP_SAMPLE;
+        if (!this.world.isExplored(wx, wy)) continue;
+        if (this.world.get(wx, wy) === CELL.TREASURE) {
+          ctx.fillRect(x - 1, y - 1, 2, 2);
+        }
+      }
+    }
+  }
+
   private buildMinimapImage(): ImageData {
     const image = new ImageData(MINIMAP_W, MINIMAP_H);
     const data = image.data;
     for (let y = 0; y < MINIMAP_H; y++) {
       for (let x = 0; x < MINIMAP_W; x++) {
-        const cell = this.world.get(x * MINIMAP_SAMPLE, y * MINIMAP_SAMPLE);
-        const [r, g, b] = minimapColor(cell);
+        const wx = x * MINIMAP_SAMPLE;
+        const wy = y * MINIMAP_SAMPLE;
         const i = (y * MINIMAP_W + x) * 4;
+        if (!this.world.isExplored(wx, wy)) {
+          data[i] = 0;
+          data[i + 1] = 0;
+          data[i + 2] = 0;
+          data[i + 3] = 255;
+          continue;
+        }
+        const cell = this.world.get(wx, wy);
+        const [r, g, b] = minimapColor(cell);
         data[i] = r;
         data[i + 1] = g;
         data[i + 2] = b;
@@ -313,9 +530,58 @@ export class UI {
     return image;
   }
 
-  showPopup(text: string, x: number, y: number): void {}
+  showPopup(text: string, sx: number, sy: number): void {
+    if (this.popups.length >= POPUP_MAX) {
+      const oldest = this.popups.shift();
+      oldest?.remove();
+    }
+    const el = document.createElement("div");
+    el.className = "popup";
+    el.textContent = text;
+    el.style.left = `${sx}px`;
+    el.style.top = `${sy}px`;
+    this.root.appendChild(el);
+    this.popups.push(el);
 
-  updateRadar(angle: number, distance: number): void {}
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        el.classList.add("popup-active");
+      });
+    });
+
+    window.setTimeout(() => {
+      el.remove();
+      const idx = this.popups.indexOf(el);
+      if (idx !== -1) this.popups.splice(idx, 1);
+    }, POPUP_LIFETIME_MS);
+  }
+
+  updateRadar(angle: number, distance: number): void {
+    if (!this.radarEl) {
+      this.radarEl = document.createElement("div");
+      this.radarEl.className = "radar hidden";
+      this.radarArrow = document.createElement("div");
+      this.radarArrow.className = "radar-arrow";
+      this.radarEl.appendChild(this.radarArrow);
+      this.root.appendChild(this.radarEl);
+    }
+    this.radarEl.classList.remove("hidden");
+
+    const color = radarColor(distance);
+    if (this.radarArrow) {
+      this.radarArrow.style.transform = `rotate(${angle}rad)`;
+      this.radarArrow.style.borderLeftColor = color;
+    }
+
+    this.radarEl.classList.remove("radar-pulse");
+    void this.radarEl.offsetWidth;
+    this.radarEl.classList.add("radar-pulse");
+    if (this.radarPulseTimer !== null) window.clearTimeout(this.radarPulseTimer);
+    this.radarPulseTimer = window.setTimeout(() => {
+      this.radarEl?.classList.remove("radar-pulse");
+      this.radarPulseTimer = null;
+    }, RADAR_PULSE_MS);
+  }
 
   showWin(stats: WinStats): void {
     this.winOverlay.textContent = "";
