@@ -1,0 +1,229 @@
+#ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-family: "Courier New", monospace;
+  font-weight: bold;
+  color: #7dff9a;
+  z-index: 10;
+  user-select: none;
+}
+
+.hud-topleft,
+.shop-bar,
+.upgrade-tab,
+.upgrade-panel,
+.minimap-wrap,
+.win-overlay {
+  pointer-events: auto;
+}
+
+.hud-topleft {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: rgba(0, 20, 8, 0.85);
+  border: 2px solid #7dff9a;
+  padding: 8px 12px;
+}
+
+.hud-currency {
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.hud-sub {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.shop-bar {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+}
+
+.shop-btn {
+  background: rgba(0, 20, 8, 0.85);
+  border: 2px solid var(--ball-color, #7dff9a);
+  color: #7dff9a;
+  font-family: inherit;
+  font-weight: inherit;
+  padding: 6px 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 70px;
+}
+
+.shop-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.shop-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.shop-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ball-color, #7dff9a);
+  display: inline-block;
+}
+
+.shop-status {
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.upgrade-tab {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(0, 20, 8, 0.85);
+  border: 2px solid #7dff9a;
+  color: #7dff9a;
+  font-family: inherit;
+  font-weight: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.upgrade-panel {
+  position: absolute;
+  top: 52px;
+  right: 12px;
+  width: 232px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: rgba(0, 20, 8, 0.85);
+  border: 2px solid #7dff9a;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.upgrade-panel.hidden {
+  display: none;
+}
+
+.upgrade-node {
+  width: 48px;
+  height: 48px;
+  background: rgba(0, 20, 8, 0.85);
+  border: 2px solid var(--node-color, #7dff9a);
+  color: #7dff9a;
+  font-family: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.upgrade-node:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.upgrade-node-abbrev {
+  font-size: 12px;
+}
+
+.upgrade-node-level {
+  font-size: 9px;
+  opacity: 0.85;
+}
+
+.upgrade-tooltip {
+  position: fixed;
+  max-width: 220px;
+  background: rgba(0, 20, 8, 0.95);
+  border: 2px solid #7dff9a;
+  color: #7dff9a;
+  font-family: inherit;
+  font-weight: inherit;
+  font-size: 11px;
+  padding: 6px 8px;
+  white-space: pre-line;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.upgrade-tooltip.hidden {
+  display: none;
+}
+
+.minimap-wrap {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  background: rgba(0, 20, 8, 0.85);
+  border: 2px solid #7dff9a;
+  padding: 2px;
+  line-height: 0;
+}
+
+.win-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+}
+
+.win-overlay.hidden {
+  display: none;
+}
+
+.win-panel {
+  background: rgba(0, 20, 8, 0.95);
+  border: 2px solid #7dff9a;
+  color: #7dff9a;
+  padding: 24px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.win-title {
+  font-size: 26px;
+}
+
+.win-stat {
+  font-size: 14px;
+}
+
+.win-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.win-btn {
+  background: rgba(0, 20, 8, 0.85);
+  border: 2px solid #7dff9a;
+  color: #7dff9a;
+  font-family: inherit;
+  font-weight: inherit;
+  font-size: 14px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
