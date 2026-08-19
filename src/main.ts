@@ -1,4 +1,4 @@
-import { World, CELL, WORLD_W, WORLD_H } from "./world";
+import { World, CELL, WORLD_W } from "./world";
 import { SaveData, diffWorld, applyDiff, saveGame, loadGame, clearSave, normalizeSave, encodeExplored, decodeExplored } from "./save";
 import { EconomyState, BallType, BALL_ORDER, newEconomy, pixelValue, statMul, abilityLevel } from "./economy";
 import { biomeAt, biomeValueMul } from "./biomes";
@@ -26,6 +26,7 @@ let stats: { pixelsMined: number; startedAt: number; won: boolean };
 if (save) {
   world = World.generate(save.seed);
   applyDiff(world, save.changes);
+  world.syncBossMap();
   if (save.exploredRuns.length > 0) {
     decodeExplored(save.exploredRuns, world.explored);
   } else if (save.changes.length > 0) {
@@ -267,10 +268,6 @@ function updateCameraPan(dt: number): void {
 
 let uiDirty = false;
 
-function edge(x: number, y: number): number {
-  return Math.max(Math.abs(x - WORLD_W / 2) / (WORLD_W / 2), Math.abs(y - WORLD_H / 2) / (WORLD_H / 2));
-}
-
 function onMined(cell: number, x: number, y: number): void {
   const revealRadius = 6 + 2 * abilityLevel(economy, "revealRadius");
   world.reveal(x, y, revealRadius);
@@ -280,7 +277,7 @@ function onMined(cell: number, x: number, y: number): void {
   if (cell === CELL.UPGRADE) economy.upgradePoints++;
 
   if (cell === CELL.TREASURE) {
-    const amount = Math.ceil(100 * (1 + 2 * edge(x, y)));
+    const amount = Math.ceil(100 * (1 + 2 * world.edgeAt(x, y)));
     economy.currency += amount;
     const [sx, sy] = worldToScreen(cam, canvas.width, canvas.height, x, y);
     ui.showPopup?.("+" + amount, sx, sy);
@@ -289,7 +286,7 @@ function onMined(cell: number, x: number, y: number): void {
   if (cell === CELL.BOSS) {
     const bossId = world.registerBossCellMined(x, y);
     if (bossId !== -1) {
-      const amount = Math.ceil(2000 * (1 + edge(x, y)));
+      const amount = Math.ceil(2000 * (1 + world.edgeAt(x, y)));
       economy.currency += amount;
       economy.upgradePoints += 3;
       for (let dy = -6; dy <= 6; dy++) {

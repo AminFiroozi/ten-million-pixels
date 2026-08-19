@@ -61,37 +61,7 @@ export function decodeExplored(runs: number[], out: Uint8Array): void {
 }
 
 export function migrateV1(old: { seed: number; changes: number[]; [k: string]: unknown }): SaveData {
-  const rawBalls = (old.ballsOwned ?? {}) as Record<string, unknown>;
-  const ballsOwned = {} as Record<BallType, number>;
-  for (const t of BALL_ORDER) {
-    const v = rawBalls[t];
-    ballsOwned[t] = typeof v === "number" && Number.isFinite(v) ? v : 0;
-  }
-
-  const rawUpgrades = (old.upgrades ?? {}) as Record<string, unknown>;
-  const upgrades: Record<string, number> = {};
-  for (const key of Object.keys(rawUpgrades)) {
-    const v = rawUpgrades[key];
-    if (typeof v === "number" && Number.isFinite(v)) upgrades[key] = v;
-  }
-
-  const rawStats = (old.stats ?? {}) as Partial<SaveData["stats"]>;
-
-  return {
-    version: 2,
-    seed: typeof old.seed === "number" && Number.isFinite(old.seed) ? old.seed : 0,
-    changes: Array.isArray(old.changes) ? old.changes : [],
-    currency: typeof old.currency === "number" && Number.isFinite(old.currency as number) ? (old.currency as number) : 0,
-    upgradePoints: typeof old.upgradePoints === "number" && Number.isFinite(old.upgradePoints as number) ? (old.upgradePoints as number) : 0,
-    upgrades,
-    ballsOwned,
-    stats: {
-      pixelsMined: typeof rawStats.pixelsMined === "number" && Number.isFinite(rawStats.pixelsMined) ? rawStats.pixelsMined : 0,
-      startedAt: typeof rawStats.startedAt === "number" && Number.isFinite(rawStats.startedAt) ? rawStats.startedAt : Date.now(),
-      won: typeof rawStats.won === "boolean" ? rawStats.won : false,
-    },
-    exploredRuns: [],
-  };
+  return { ...old, version: 2, exploredRuns: [] } as unknown as SaveData;
 }
 
 export function saveGame(data: SaveData): void {
@@ -126,40 +96,78 @@ export function clearSave(): void {
 }
 
 export function normalizeSave(data: SaveData): SaveData {
+  const corrected: string[] = [];
+
   const rawBalls = (data.ballsOwned ?? {}) as Record<string, unknown>;
   const ballsOwned = {} as Record<BallType, number>;
   for (const t of BALL_ORDER) {
     const v = rawBalls[t];
-    ballsOwned[t] = typeof v === "number" && Number.isFinite(v) ? v : 0;
+    if (v === undefined) {
+      ballsOwned[t] = 0;
+    } else if (typeof v === "number" && Number.isFinite(v)) {
+      ballsOwned[t] = v;
+    } else {
+      ballsOwned[t] = 0;
+      corrected.push(`ballsOwned.${t}`);
+    }
   }
 
   const rawUpgrades = (data.upgrades ?? {}) as Record<string, unknown>;
   const upgrades: Record<string, number> = {};
   for (const key of Object.keys(rawUpgrades)) {
     const v = rawUpgrades[key];
-    if (typeof v === "number" && Number.isFinite(v)) upgrades[key] = v;
+    if (typeof v === "number" && Number.isFinite(v)) {
+      upgrades[key] = v;
+    } else {
+      corrected.push(`upgrades.${key}`);
+    }
   }
 
   const rawStats = (data.stats ?? {}) as Partial<SaveData["stats"]>;
 
   const rawExploredRuns = data.exploredRuns;
-  const exploredRuns =
-    Array.isArray(rawExploredRuns) && rawExploredRuns.every((v) => typeof v === "number" && Number.isFinite(v))
-      ? rawExploredRuns
-      : [];
+  const exploredRunsValid =
+    Array.isArray(rawExploredRuns) && rawExploredRuns.every((v) => typeof v === "number" && Number.isFinite(v));
+  if (!exploredRunsValid) corrected.push("exploredRuns");
+  const exploredRuns = exploredRunsValid ? rawExploredRuns : [];
+
+  const seedValid = typeof data.seed === "number" && Number.isFinite(data.seed);
+  if (!seedValid) corrected.push("seed");
+
+  const changesValid = Array.isArray(data.changes);
+  if (!changesValid) corrected.push("changes");
+
+  const currencyValid = typeof data.currency === "number" && Number.isFinite(data.currency);
+  if (!currencyValid) corrected.push("currency");
+
+  const upgradePointsValid = typeof data.upgradePoints === "number" && Number.isFinite(data.upgradePoints);
+  if (!upgradePointsValid) corrected.push("upgradePoints");
+
+  const pixelsMinedValid = typeof rawStats.pixelsMined === "number" && Number.isFinite(rawStats.pixelsMined);
+  if (!pixelsMinedValid) corrected.push("stats.pixelsMined");
+
+  const startedAtValid = typeof rawStats.startedAt === "number" && Number.isFinite(rawStats.startedAt);
+  if (!startedAtValid) corrected.push("stats.startedAt");
+
+  const wonValid = typeof rawStats.won === "boolean";
+  if (!wonValid) corrected.push("stats.won");
+
+  if (corrected.length > 0) {
+    console.warn("normalizeSave: corrected corrupt/missing fields to defaults:", corrected.join(", "));
+  }
 
   return {
     version: 2,
-    seed: typeof data.seed === "number" && Number.isFinite(data.seed) ? data.seed : 0,
-    changes: Array.isArray(data.changes) ? data.changes : [],
-    currency: typeof data.currency === "number" && Number.isFinite(data.currency) ? data.currency : 0,
-    upgradePoints: typeof data.upgradePoints === "number" && Number.isFinite(data.upgradePoints) ? data.upgradePoints : 0,
+    seed: seedValid ? data.seed : 0,
+    changes: changesValid ? data.changes : [],
+    currency: currencyValid ? data.currency : 0,
+    upgradePoints: upgradePointsValid ? data.upgradePoints : 0,
     upgrades,
     ballsOwned,
     stats: {
-      pixelsMined: typeof rawStats.pixelsMined === "number" && Number.isFinite(rawStats.pixelsMined) ? rawStats.pixelsMined : 0,
-      startedAt: typeof rawStats.startedAt === "number" && Number.isFinite(rawStats.startedAt) ? rawStats.startedAt : Date.now(),
-      won: typeof rawStats.won === "boolean" ? rawStats.won : false,
+      pixelsMined: pixelsMinedValid ? (rawStats.pixelsMined as number) : 0,
+      startedAt: startedAtValid ? (rawStats.startedAt as number) : Date.now(),
+      won: wonValid ? (rawStats.won as boolean) : false,
     },
     exploredRuns,
   };

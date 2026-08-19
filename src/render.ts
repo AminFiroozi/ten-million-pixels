@@ -256,7 +256,7 @@ export class Renderer {
   private chunksY: number;
   private chunks: Map<number, Chunk>;
   private dirty: Set<number>;
-  private dirtyCells: Map<number, number[]>;
+  private dirtyCells: Map<number, Set<number>>;
   private particles: Particle[];
   private time: number;
   private ballSprites: Map<BallType, CanvasLike>;
@@ -292,11 +292,11 @@ export class Renderer {
     if (!this.chunks.has(id) || this.dirty.has(id)) return;
     let cells = this.dirtyCells.get(id);
     if (!cells) {
-      cells = [];
+      cells = new Set();
       this.dirtyCells.set(id, cells);
     }
-    cells.push(this.world.idx(x, y));
-    if (cells.length > MAX_DIRTY_CELLS) {
+    cells.add(this.world.idx(x, y));
+    if (cells.size > MAX_DIRTY_CELLS) {
       this.dirty.add(id);
       this.dirtyCells.delete(id);
     }
@@ -370,15 +370,12 @@ export class Renderer {
     }
   }
 
-  private patchChunk(cx: number, cy: number, cellIndices: number[]): void {
+  private patchChunk(cx: number, cy: number, cellIndices: Set<number>): void {
     const chunk = this.chunks.get(this.chunkId(cx, cy)) as Chunk;
     const ctx = chunk.ctx;
     const x0 = cx * CHUNK;
     const y0 = cy * CHUNK;
-    const seen = new Set<number>();
     for (const i of cellIndices) {
-      if (seen.has(i)) continue;
-      seen.add(i);
       const y = Math.floor(i / WORLD_W);
       const x = i - y * WORLD_W;
       const lx = x - x0;
@@ -408,7 +405,7 @@ export class Renderer {
       return this.chunks.get(id) as Chunk;
     }
     const cells = this.dirtyCells.get(id);
-    if (cells && cells.length > 0) {
+    if (cells && cells.size > 0) {
       this.patchChunk(cx, cy, cells);
       this.dirtyCells.delete(id);
     }

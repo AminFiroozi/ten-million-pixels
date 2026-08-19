@@ -102,4 +102,15 @@ describe("molten and dark speed", () => {
     p.step(0.5, { ...DSTATS, darkSpeedMul: 2 }, () => {});
     expect(p.balls[0].x).toBeCloseTo(100 + 90 * 0.5 * 2, 0);
   });
+  it("dark speed can't tunnel a ball through a 1-cell-thick wall", () => {
+    const w = World.generate(3);
+    w.cells.fill(CELL.EMPTY);
+    w.explored.fill(0);
+    for (let y = 0; y < WORLD_H; y++) w.cells[w.idx(110, y)] = CELL.HARD;
+    const p = new Physics(w);
+    p.spawn("white", 100, 100, 0);
+    p.step(0.5, { ...DSTATS, darkSpeedMul: 2 }, () => {});
+    expect(p.balls[0].vx).toBeLessThan(0);
+    expect(p.balls[0].x).toBeLessThan(110);
+  });
 });

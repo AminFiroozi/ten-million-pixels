@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { World, WORLD_W, WORLD_H, CELL } from "../src/world";
+import { diffWorld, applyDiff } from "../src/save";
 
 function hash(cells: Uint8Array): number {
   let h = 2166136261;
@@ -140,5 +141,42 @@ describe("treasure and bosses", () => {
     const a = World.generate(42), b = World.generate(42);
     expect(Array.from(a.cells)).toEqual(Array.from(b.cells));
     expect(a.bossMap.size).toBe(b.bossMap.size);
+  });
+  it("boss blob survives a save/load round-trip via syncBossMap", () => {
+    const seed = 1234;
+    const w = World.generate(seed);
+    const byId = new Map<number, number[]>();
+    for (const [idx, id] of w.bossMap) {
+      if (!byId.has(id)) byId.set(id, []);
+      byId.get(id)!.push(idx);
+    }
+    const [blobId, idxs] = [...byId.entries()][0];
+    const originalCount = idxs.length;
+    const destroyCount = Math.max(1, Math.floor(originalCount / 2));
+    const destroyed = idxs.slice(0, destroyCount);
+    const remaining = idxs.slice(destroyCount);
+    expect(remaining.length).toBeGreaterThan(0);
+
+    for (const i of destroyed) {
+      const x = i % WORLD_W, y = Math.floor(i / WORLD_W);
+      expect(w.hit(x, y, 999)).toBe(CELL.BOSS);
+    }
+
+    const diff = diffWorld(w);
+
+    const fresh = World.generate(seed);
+    applyDiff(fresh, diff);
+    fresh.syncBossMap();
+
+    for (const i of destroyed) expect(fresh.bossMap.has(i)).toBe(false);
+    expect(fresh.bossRemaining[blobId]).toBe(originalCount - destroyCount);
+
+    let lastResult = -1;
+    for (const i of remaining) {
+      const x = i % WORLD_W, y = Math.floor(i / WORLD_W);
+      expect(fresh.hit(x, y, 999)).toBe(CELL.BOSS);
+      lastResult = fresh.registerBossCellMined(x, y);
+    }
+    expect(lastResult).toBe(blobId);
   });
 });

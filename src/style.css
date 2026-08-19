@@ -23,6 +23,10 @@
   display: none;
 }
 
+#ui .hidden {
+  display: none !important;
+}
+
 .hud-topleft {
   position: absolute;
   top: 12px;
@@ -153,7 +157,7 @@
 .upgrade-node {
   position: absolute;
   z-index: 1;
-  width: 44px;
+  width: 80px;
   height: 44px;
   background: rgba(0, 20, 8, 0.85);
   border: 2px solid var(--node-color, #7dff9a);
@@ -347,7 +351,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 30;
+  z-index: 50;
 }
 
 .win-overlay.hidden {

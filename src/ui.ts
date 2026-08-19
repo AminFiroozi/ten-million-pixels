@@ -20,10 +20,12 @@ const MINIMAP_H = 100;
 const MINIMAP_SAMPLE = 8;
 const MINIMAP_REFRESH_MS = 500;
 
-const SKILL_TREE_COL_W = 60;
+const SKILL_TREE_COL_W = 100;
 const SKILL_TREE_ROW_H = 64;
 const NODE_PAD = 12;
-const NODE_SIZE = 44;
+const NODE_W = 80;
+const NODE_H = 44;
+const NODE_LABEL_CHARS = 12;
 
 const LAUNCHER_COLOR = "#8cf";
 const DISCOVERY_COLOR = "#6ec6ff";
@@ -71,11 +73,11 @@ function nodeColor(node: UpgradeNode): string {
 }
 
 function nodeShortLabel(node: UpgradeNode): string {
-  return node.name.slice(0, 6);
+  return node.name.slice(0, NODE_LABEL_CHARS);
 }
 
 function nodeCenter(layout: { col: number; row: number }): [number, number] {
-  return [layout.col * SKILL_TREE_COL_W + NODE_PAD + NODE_SIZE / 2, layout.row * SKILL_TREE_ROW_H + NODE_PAD + NODE_SIZE / 2];
+  return [layout.col * SKILL_TREE_COL_W + NODE_PAD + NODE_W / 2, layout.row * SKILL_TREE_ROW_H + NODE_PAD + NODE_H / 2];
 }
 
 function computeTreeSize(): [number, number] {
@@ -113,8 +115,8 @@ function minimapColor(cell: number): [number, number, number] {
 }
 
 function radarColor(distance: number): string {
-  if (distance > 600) return "#6ec6ff";
-  if (distance >= 300) return "#ffd75e";
+  if (distance > 300) return "#6ec6ff";
+  if (distance >= 150) return "#ffd75e";
   return "#ff5c5c";
 }
 
@@ -153,6 +155,7 @@ export class UI {
   private minimapCtx: CanvasRenderingContext2D;
   private minimapCache: ImageData | null;
   private minimapCacheTime: number;
+  private treasurePingCache: Array<[number, number]>;
 
   private winOverlay: HTMLElement;
 
@@ -171,6 +174,7 @@ export class UI {
     this.edgeLines = new Map();
     this.minimapCache = null;
     this.minimapCacheTime = -Infinity;
+    this.treasurePingCache = [];
     this.touchCapable = "ontouchstart" in window;
     this.lastTapNode = null;
     this.lastTapTime = 0;
@@ -492,21 +496,15 @@ export class UI {
   private drawTreasurePings(): void {
     const ctx = this.minimapCtx;
     ctx.fillStyle = "#ffd75e";
-    for (let y = 0; y < MINIMAP_H; y++) {
-      for (let x = 0; x < MINIMAP_W; x++) {
-        const wx = x * MINIMAP_SAMPLE;
-        const wy = y * MINIMAP_SAMPLE;
-        if (!this.world.isExplored(wx, wy)) continue;
-        if (this.world.get(wx, wy) === CELL.TREASURE) {
-          ctx.fillRect(x - 1, y - 1, 2, 2);
-        }
-      }
+    for (const [x, y] of this.treasurePingCache) {
+      ctx.fillRect(x - 1, y - 1, 2, 2);
     }
   }
 
   private buildMinimapImage(): ImageData {
     const image = new ImageData(MINIMAP_W, MINIMAP_H);
     const data = image.data;
+    const pings: Array<[number, number]> = [];
     for (let y = 0; y < MINIMAP_H; y++) {
       for (let x = 0; x < MINIMAP_W; x++) {
         const wx = x * MINIMAP_SAMPLE;
@@ -525,8 +523,10 @@ export class UI {
         data[i + 1] = g;
         data[i + 2] = b;
         data[i + 3] = 255;
+        if (cell === CELL.TREASURE) pings.push([x, y]);
       }
     }
+    this.treasurePingCache = pings;
     return image;
   }
 

@@ -112,6 +112,7 @@ export class World {
     if (accum >= hp) {
       this.cells[i] = CELL.EMPTY;
       this.damage.delete(i);
+      if (cell === CELL.GOLD) this.goldenIndex = -1;
       this.onCellChanged?.(x, y);
       return cell;
     }
@@ -130,7 +131,16 @@ export class World {
     return this.bossRemaining[id] === 0 ? id : -1;
   }
 
-  private edgeAt(x: number, y: number): number {
+  syncBossMap(): void {
+    for (const [i, id] of this.bossMap) {
+      if (this.cells[i] !== CELL.BOSS) {
+        this.bossMap.delete(i);
+        this.bossRemaining[id]--;
+      }
+    }
+  }
+
+  edgeAt(x: number, y: number): number {
     return Math.max(
       Math.abs(x - WORLD_W / 2) / (WORLD_W / 2),
       Math.abs(y - WORLD_H / 2) / (WORLD_H / 2)
@@ -196,10 +206,10 @@ export class World {
     const rng2 = mulberry32(this.seed + 3);
     for (let n = 0; n < 400; n++) {
       let x = 0, y = 0;
-      for (let roll = 0; roll < 3; roll++) {
+      for (let roll = 0; roll < 2; roll++) {
         x = Math.floor(rng2() * WORLD_W);
         y = Math.floor(rng2() * WORLD_H);
-        if (roll === 2 || biomeAt(x, y, this.seed) === "ruins") break;
+        if (roll === 1 || biomeAt(x, y, this.seed) === "ruins") break;
       }
       const i = this.idx(x, y);
       const c = this.cells[i];

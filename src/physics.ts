@@ -95,10 +95,10 @@ export class Physics {
 
     let remaining = totalDist;
     while (remaining > 0 && !ball.dead) {
-      const sub = Math.min(MAX_SUBSTEP, remaining);
+      const darkMul = this.world.isExplored(Math.floor(ball.x), Math.floor(ball.y)) ? 1 : stats.darkSpeedMul;
+      const sub = Math.min(MAX_SUBSTEP / darkMul, remaining);
       remaining -= sub;
 
-      const darkMul = this.world.isExplored(Math.floor(ball.x), Math.floor(ball.y)) ? 1 : stats.darkSpeedMul;
       const moveDist = sub * darkMul;
 
       const nx = ball.x + dirX * moveDist;
