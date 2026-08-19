@@ -64,8 +64,7 @@ export const UPGRADE_TREE: UpgradeNode[] = [
   { id: "reveal_radius_1", name: "Wider Reveal I", desc: "Increases dig reveal radius", cost: 2, max: 3, stat: "revealRadius", amount: 2 },
   { id: "reveal_radius_2", name: "Wider Reveal II", desc: "Further increases dig reveal radius", cost: 3, max: 3, requires: "reveal_radius_1", stat: "revealRadius", amount: 2 },
   { id: "radar", name: "Radar", desc: "Highlights hidden objects nearby", cost: 4, max: 1, stat: "radar" },
-  { id: "molten_immunity", name: "Molten Immunity", desc: "Balls are immune to molten damage", cost: 4, max: 1, stat: "moltenImmunity" },
-  { id: "dark_speed", name: "Dark Speed", desc: "Increases ball speed in dark zones", cost: 3, max: 2, stat: "darkSpeed", amount: 0.15 },
+  { id: "dark_speed", name: "Dark Speed", desc: "Increases ball speed in dark zones", cost: 3, max: 3, stat: "darkSpeed", amount: 0.15 },
 ];
 
 export const NODE_LAYOUT: Record<string, { col: number; row: number; branch: "ball" | "launcher" | "discovery" | "survival" }> = {
@@ -89,7 +88,6 @@ export const NODE_LAYOUT: Record<string, { col: number; row: number; branch: "ba
   reveal_radius_2: { col: 8, row: 1, branch: "discovery" },
   radar: { col: 8, row: 2, branch: "discovery" },
   treasure_hunter: { col: 8, row: 3, branch: "discovery" },
-  molten_immunity: { col: 9, row: 0, branch: "survival" },
   dark_speed: { col: 9, row: 1, branch: "survival" },
 };
 

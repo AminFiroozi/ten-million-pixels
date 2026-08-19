@@ -66,11 +66,13 @@ describe("depths tree nodes", () => {
     expect(abilityLevel(s, "launchWave")).toBe(1);
     expect(buyUpgrade(s, "launch_speed")).toBe(true);
     expect(statMul(s, "launchSpeed")).toBeCloseTo(1.1);
-    expect(buyUpgrade(s, "molten_immunity")).toBe(true);
-    expect(abilityLevel(s, "moltenImmunity")).toBe(1);
-    expect(buyUpgrade(s, "molten_immunity")).toBe(false);
     expect(buyUpgrade(s, "dark_speed")).toBe(true);
     expect(statMul(s, "darkSpeed")).toBeCloseTo(1.15);
+    expect(buyUpgrade(s, "dark_speed")).toBe(true);
+    expect(statMul(s, "darkSpeed")).toBeCloseTo(1.30);
+    expect(buyUpgrade(s, "dark_speed")).toBe(true);
+    expect(statMul(s, "darkSpeed")).toBeCloseTo(1.45);
+    expect(buyUpgrade(s, "dark_speed")).toBe(false);
   });
   it("every tree node has a layout entry", () => {
     for (const n of UPGRADE_TREE) expect(NODE_LAYOUT[n.id]).toBeDefined();
