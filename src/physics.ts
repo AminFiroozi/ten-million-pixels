@@ -1,7 +1,7 @@
 import { World, WORLD_W, CELL } from "./world";
 import { BallType } from "./economy";
 import { mulberry32 } from "./rng";
-import { biomeAt, MOLTEN_DESTROY_CHANCE } from "./biomes";
+import { biomeAt } from "./biomes";
 
 export interface Ball {
   x: number;
@@ -21,7 +21,6 @@ export interface AbilityStats {
   poisonSpread: number;
   splitCount: number;
   pierceDepth: number;
-  moltenImmune: boolean;
   darkSpeedMul: number;
 }
 
@@ -31,6 +30,7 @@ const BASE_SPEED = 90;
 const MAX_SUBSTEP = 0.9;
 const POISON_TICK = 0.5;
 const MAX_BALLS = 20000;
+const MOLTEN_BOUNCE_MUL = 1.6;
 
 export class Physics {
   world: World;
@@ -63,9 +63,9 @@ export class Physics {
     this.balls.push(ball);
   }
 
-  step(dt: number, stats: AbilityStats, onMined: MineCallback): void {
+  step(dt: number, stats: AbilityStats, onMined: MineCallback, onMoltenHit?: (x: number, y: number) => void): void {
     for (const ball of this.balls) {
-      this.moveBall(ball, dt, stats, onMined);
+      this.moveBall(ball, dt, stats, onMined, onMoltenHit);
     }
 
     this.tickPoison(dt, stats, onMined);
@@ -84,7 +84,7 @@ export class Physics {
     );
   }
 
-  private moveBall(ball: Ball, dt: number, stats: AbilityStats, onMined: MineCallback): void {
+  private moveBall(ball: Ball, dt: number, stats: AbilityStats, onMined: MineCallback, onMoltenHit?: (x: number, y: number) => void): void {
     const speedScale = ball.type === "purple" ? 0.6 : 1;
     const totalDist = BASE_SPEED * stats.speedMul * dt * speedScale;
     const speed = Math.hypot(ball.vx, ball.vy);
@@ -105,7 +105,7 @@ export class Physics {
       const ny = ball.y + dirY * moveDist;
 
       if (this.world.isSolid(Math.floor(nx), Math.floor(ny))) {
-        const passThrough = this.resolveCollision(ball, nx, ny, stats, onMined);
+        const passThrough = this.resolveCollision(ball, nx, ny, stats, onMined, onMoltenHit);
         if (!passThrough) break;
 
         ball.x = nx;
@@ -123,11 +123,13 @@ export class Physics {
     }
   }
 
-  private resolveCollision(ball: Ball, nx: number, ny: number, stats: AbilityStats, onMined: MineCallback): boolean {
+  private resolveCollision(ball: Ball, nx: number, ny: number, stats: AbilityStats, onMined: MineCallback, onMoltenHit?: (x: number, y: number) => void): boolean {
     const hitX = Math.floor(nx);
     const hitY = Math.floor(ny);
     const solidX = this.world.isSolid(Math.floor(nx), Math.floor(ball.y));
     const solidY = this.world.isSolid(Math.floor(ball.x), Math.floor(ny));
+    const isMolten = biomeAt(hitX, hitY, this.world.seed) === "molten";
+    if (isMolten) onMoltenHit?.(hitX, hitY);
 
     const reflect = (): void => {
       if (solidX) ball.vx = -ball.vx;
@@ -135,6 +137,10 @@ export class Physics {
       if (!solidX && !solidY) {
         ball.vx = -ball.vx;
         ball.vy = -ball.vy;
+      }
+      if (isMolten) {
+        if (solidX || (!solidX && !solidY)) ball.vx *= MOLTEN_BOUNCE_MUL;
+        if (solidY || (!solidX && !solidY)) ball.vy *= MOLTEN_BOUNCE_MUL;
       }
       if (ball.type === "blue") this.snapToAxis(ball);
     };
@@ -146,10 +152,6 @@ export class Physics {
     if (ball.type === "yellow" && ball.pierceLeft > 0) {
       const destroyed = this.world.hit(hitX, hitY, 999);
       if (destroyed) onMined(destroyed, hitX, hitY);
-      if (this.rollMolten(hitX, hitY, stats)) {
-        ball.dead = true;
-        return false;
-      }
       ball.pierceLeft -= 1;
       return true;
     }
@@ -157,11 +159,6 @@ export class Physics {
     const damage = 1 * stats.dmgMul * (ball.type === "purple" ? 5 : 1);
     const destroyed = this.world.hit(hitX, hitY, damage);
     if (destroyed) onMined(destroyed, hitX, hitY);
-
-    if (this.rollMolten(hitX, hitY, stats)) {
-      ball.dead = true;
-      return false;
-    }
 
     if (ball.type === "red") {
       this.smash(hitX, hitY, stats.smashRadius, damage, onMined);
@@ -186,12 +183,6 @@ export class Physics {
     }
 
     return false;
-  }
-
-  private rollMolten(hitX: number, hitY: number, stats: AbilityStats): boolean {
-    if (stats.moltenImmune) return false;
-    if (biomeAt(hitX, hitY, this.world.seed) !== "molten") return false;
-    return this.rng() < MOLTEN_DESTROY_CHANCE;
   }
 
   private smash(cx: number, cy: number, radius: number, dmg: number, onMined: MineCallback): void {

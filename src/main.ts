@@ -326,7 +326,6 @@ function buildAbilityStats(): AbilityStats {
     poisonSpread: 1 + abilityLevel(economy, "poisonSpread"),
     splitCount: 1 + abilityLevel(economy, "splitCount"),
     pierceDepth: 1 + abilityLevel(economy, "pierceDepth"),
-    moltenImmune: abilityLevel(economy, "moltenImmunity") > 0,
     darkSpeedMul: statMul(economy, "darkSpeed"),
   };
 }

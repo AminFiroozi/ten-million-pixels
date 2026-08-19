@@ -3,8 +3,8 @@ import { World, CELL, WORLD_W, WORLD_H } from "../src/world";
 import { Physics, AbilityStats } from "../src/physics";
 import { biomeAt } from "../src/biomes";
 
-const STATS: AbilityStats = { speedMul: 1, dmgMul: 1, smashRadius: 2, poisonSpread: 1, splitCount: 2, pierceDepth: 2, moltenImmune: true, darkSpeedMul: 1 };
-const DSTATS: AbilityStats = { speedMul: 1, dmgMul: 1, smashRadius: 2, poisonSpread: 1, splitCount: 2, pierceDepth: 2, moltenImmune: false, darkSpeedMul: 1 };
+const STATS: AbilityStats = { speedMul: 1, dmgMul: 1, smashRadius: 2, poisonSpread: 1, splitCount: 2, pierceDepth: 2, darkSpeedMul: 1 };
+const DSTATS: AbilityStats = { speedMul: 1, dmgMul: 1, smashRadius: 2, poisonSpread: 1, splitCount: 2, pierceDepth: 2, darkSpeedMul: 1 };
 
 function emptyWorld(): World {
   const w = World.generate(1);
@@ -71,27 +71,40 @@ describe("physics", () => {
 });
 
 describe("molten and dark speed", () => {
-  it("molten can destroy a non-immune ball deterministically per seed", () => {
+  it("molten collision bounces the ball harder and never destroys it", () => {
+    const seed = 3;
+    const w = World.generate(seed);
+    let mx = -1, my = -1;
+    outer: for (let y = 100; y < WORLD_H; y++) for (let x = 100; x < WORLD_W; x++)
+      if (biomeAt(x, y, w.seed) === "molten") { mx = x; my = y; break outer; }
+    w.cells.fill(CELL.EMPTY);
+    for (let y = 0; y < WORLD_H; y++) w.cells[w.idx(mx, y)] = CELL.HARD;
+    const p = new Physics(w);
+    p.spawn("white", mx - 1, my, 0);
+    const speedBefore = Math.hypot(p.balls[0].vx, p.balls[0].vy);
+    let moltenHitAt: [number, number] | null = null;
+    p.step(0.2, DSTATS, () => {}, (x, y) => { moltenHitAt = [x, y]; });
+    expect(p.balls.length).toBe(1);
+    expect(p.balls[0].vx).toBeLessThan(0);
+    const speedAfter = Math.hypot(p.balls[0].vx, p.balls[0].vy);
+    expect(speedAfter).toBeCloseTo(speedBefore * 1.6, 1);
+    expect(moltenHitAt).toEqual([mx, my]);
+  });
+  it("ball survives many consecutive molten bounces without dying", () => {
     const seed = 3;
     const w = World.generate(seed);
     let mx = -1, my = -1;
     outer: for (let y = 100; y < WORLD_H; y++) for (let x = 100; x < WORLD_W; x++)
       if (biomeAt(x, y, w.seed) === "molten" && biomeAt(x + 2, y, w.seed) === "molten") { mx = x; my = y; break outer; }
-    const run = (immune: boolean) => {
-      const v = World.generate(seed);
-      v.cells.fill(CELL.EMPTY);
-      for (let y = 0; y < WORLD_H; y++) {
-        v.cells[v.idx(mx, y)] = CELL.HARD;
-        v.cells[v.idx(mx + 2, y)] = CELL.HARD;
-      }
-      const p = new Physics(v);
-      p.spawn("white", mx + 1.5, my, 0);
-      let alive = true;
-      for (let i = 0; i < 400 && alive; i++) { p.step(1 / 60, { ...DSTATS, moltenImmune: immune }, () => {}); alive = p.balls.length > 0; }
-      return alive;
-    };
-    expect(run(true)).toBe(true);
-    expect(run(false)).toBe(false);
+    w.cells.fill(CELL.EMPTY);
+    for (let y = 0; y < WORLD_H; y++) {
+      w.cells[w.idx(mx, y)] = CELL.HARD;
+      w.cells[w.idx(mx + 2, y)] = CELL.HARD;
+    }
+    const p = new Physics(w);
+    p.spawn("white", mx + 1.5, my, 0);
+    for (let i = 0; i < 400; i++) p.step(1 / 60, DSTATS, () => {});
+    expect(p.balls.length).toBe(1);
   });
   it("dark speed multiplier applies in unexplored cells", () => {
     const w = World.generate(3);
