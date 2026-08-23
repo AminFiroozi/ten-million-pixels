@@ -151,11 +151,11 @@ describe("sweepGrid", () => {
 
 - [ ] **Step 3: Replace `spawnWaveAt` with an `aimState` containing active flag, pointer id, pull vector, selected ball type, and preview points.**
 
-- [ ] **Step 4: Implement desktop pointer handlers: left press in the launch zone starts aim, movement updates clamped pull, release fires one ball or cancels, pointer capture/loss clears state, Escape cancels, and right-button camera drag remains intact.**
+- [ ] **Step 4: Implement desktop pointer handlers: left press anywhere on the playable canvas stores the exact world coordinate as the aim anchor, movement updates clamped pull, release fires one ball or cancels, pointer capture/loss clears state, Escape cancels, and right-button camera drag remains intact.**
 
 - [ ] **Step 5: Use `launchSpeedMul` and the pull vector opposite direction to compute the angle and speed; increment only the selected type’s `spawnedCount`.**
 
-- [ ] **Step 6: Update touch handlers so one-finger launch-zone gestures aim and two-finger gestures cancel aim then continue pinch zoom.**
+- [ ] **Step 6: Update touch handlers so one-finger gestures aim from their exact world press coordinate and two-finger gestures cancel aim then continue pinch zoom.**
 
 - [ ] **Step 7: Run `npm test` and `npm run build`.**
 

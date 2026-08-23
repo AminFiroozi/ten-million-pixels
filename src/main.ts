@@ -21,7 +21,6 @@ const RADAR_INTERVAL_S = 2;
 const PINCH_ZOOM_MIN = 0.5;
 const PINCH_ZOOM_MAX = 24;
 const TOUCH_DRAG_THRESHOLD = 12;
-const LAUNCH_ZONE_RADIUS = 32;
 const MAX_PULL = 120;
 const MIN_PULL = 8;
 const MIN_LAUNCH_SPEED = 0.55;
@@ -113,6 +112,7 @@ let lastDragY = 0;
 interface AimState {
   active: boolean;
   pointerId: number | null;
+  anchor: Point;
   pull: Point;
   ballType: BallType | null;
 }
@@ -123,7 +123,13 @@ interface AimPreviewRenderer {
 }
 
 const aimRenderer = renderer as Renderer & AimPreviewRenderer;
-const aimState: AimState = { active: false, pointerId: null, pull: { x: 0, y: 0 }, ballType: null };
+const aimState: AimState = {
+  active: false,
+  pointerId: null,
+  anchor: { x: SPAWN_CAVITY_X, y: SPAWN_CAVITY_Y },
+  pull: { x: 0, y: 0 },
+  ballType: null,
+};
 const activePointers = new Map<number, { x: number; y: number; type: string }>();
 let touchPan: { pointerId: number; x: number; y: number } | null = null;
 let pinch: PinchState | null = null;
@@ -134,14 +140,11 @@ function clearAim(): void {
   const pointerId = aimState.pointerId;
   aimState.active = false;
   aimState.pointerId = null;
+  aimState.anchor = { x: SPAWN_CAVITY_X, y: SPAWN_CAVITY_Y };
   aimState.pull = { x: 0, y: 0 };
   aimState.ballType = null;
   aimRenderer.clearAimPreview?.();
   if (pointerId !== null && canvas.hasPointerCapture?.(pointerId)) canvas.releasePointerCapture(pointerId);
-}
-
-function launcherWorldPoint(): Point {
-  return { x: SPAWN_CAVITY_X, y: SPAWN_CAVITY_Y };
 }
 
 function pointerWorldPoint(clientX: number, clientY: number): Point {
@@ -149,21 +152,16 @@ function pointerWorldPoint(clientX: number, clientY: number): Point {
   return { x, y };
 }
 
-function isInLaunchZone(clientX: number, clientY: number): boolean {
-  const pointer = pointerWorldPoint(clientX, clientY);
-  const anchor = launcherWorldPoint();
-  return Math.hypot(pointer.x - anchor.x, pointer.y - anchor.y) <= LAUNCH_ZONE_RADIUS;
-}
-
 function updateAim(clientX: number, clientY: number): void {
   if (!aimState.active) return;
-  const pull = clampPull(launcherWorldPoint(), pointerWorldPoint(clientX, clientY), MAX_PULL);
+  const pull = clampPull(aimState.anchor, pointerWorldPoint(clientX, clientY), MAX_PULL);
   aimState.pull = pull;
-  if (aimState.ballType) aimRenderer.setAimPreview?.(buildAimPreview(pull, aimState.ballType), pull, aimState.ballType);
+  if (aimState.ballType) {
+    aimRenderer.setAimPreview?.(buildAimPreview(pull, aimState.ballType, aimState.anchor), pull, aimState.ballType);
+  }
 }
 
-function buildAimPreview(pull: Point, ballType: BallType): Point[] {
-  const anchor = launcherWorldPoint();
+function buildAimPreview(pull: Point, ballType: BallType, anchor: Point): Point[] {
   const pullLength = Math.hypot(pull.x, pull.y);
   if (pullLength === 0) return [anchor];
   const angle = Math.atan2(-pull.y, -pull.x);
@@ -194,14 +192,16 @@ function buildAimPreview(pull: Point, ballType: BallType): Point[] {
 }
 
 function beginAim(pointerId: number, clientX: number, clientY: number): boolean {
-  if (paused || !isInLaunchZone(clientX, clientY)) return false;
+  if (paused) return false;
   const ballType = nextBallType(economy.ballsOwned, spawnedCount);
   if (!ballType) return false;
+  const anchor = pointerWorldPoint(clientX, clientY);
   aimState.active = true;
   aimState.pointerId = pointerId;
+  aimState.anchor = anchor;
   aimState.pull = { x: 0, y: 0 };
   aimState.ballType = ballType;
-  aimRenderer.setAimPreview?.(buildAimPreview(aimState.pull, ballType), aimState.pull, ballType);
+  aimRenderer.setAimPreview?.(buildAimPreview(aimState.pull, ballType, anchor), aimState.pull, ballType);
   updateAim(clientX, clientY);
   return true;
 }
@@ -211,12 +211,13 @@ function releaseAim(clientX: number, clientY: number): void {
   updateAim(clientX, clientY);
   const pull = aimState.pull;
   const ballType = aimState.ballType;
+  const anchor = aimState.anchor;
   clearAim();
   if (!ballType || !shouldLaunch(Math.hypot(pull.x, pull.y), MIN_PULL) || paused) return;
   const angle = Math.atan2(-pull.y, -pull.x);
   const baseSpeedMul = statMul(economy, "launchSpeed") * augmentMul(augmentState, "launchSpeed");
   const pullSpeedMul = launchSpeedMul(Math.hypot(pull.x, pull.y), MAX_PULL, MIN_LAUNCH_SPEED, MAX_LAUNCH_SPEED);
-  physics.spawn(ballType, SPAWN_CAVITY_X, SPAWN_CAVITY_Y, angle, baseSpeedMul * pullSpeedMul);
+  physics.spawn(ballType, anchor.x, anchor.y, angle, baseSpeedMul * pullSpeedMul);
   spawnedCount[ballType]++;
 }
 

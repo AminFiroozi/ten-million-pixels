@@ -21,23 +21,23 @@ References:
 
 ### Desktop
 
-- Left-button press within the launch zone begins aiming.
-- The launch zone is centered on the existing spawn cavity at `(SPAWN_CAVITY_X, SPAWN_CAVITY_Y)` with a screen-space radius of 48 pixels.
-- Pointer movement computes a pull vector from the pointer back toward the launcher anchor.
+- Left-button press anywhere on the playable canvas begins aiming, provided a ball is available.
+- The pointer's exact world coordinate at press time becomes the launch anchor; it is not snapped to a cell and is not restricted to the center cavity.
+- Pointer movement computes a pull vector from the pointer back toward that selected world anchor.
 - The pull vector is clamped to `MAX_PULL = 120` world units.
 - Pull distance maps linearly from `MIN_LAUNCH_SPEED_MUL = 0.55` to `MAX_LAUNCH_SPEED_MUL = 1.55`.
 - Releasing after a pull of at least `MIN_PULL = 8` world units fires one ball.
 - Releasing below `MIN_PULL`, pressing Escape, or losing the pointer cancels without firing.
 - Right-button camera panning remains unchanged.
-- A left click outside the launch zone no longer fires a wave or a ball.
+- A left click no longer fires immediately; it always begins an aim gesture at its exact world position.
 
 ### Touch
 
-- A one-finger press in the launch zone begins aiming.
+- A one-finger press anywhere on the playable canvas begins aiming at its exact world position when a ball is available.
 - One-finger movement updates the pull vector.
 - A one-finger release fires or cancels using the same thresholds.
 - A two-finger gesture cancels aiming and continues to use the existing pinch-zoom behavior.
-- Touch camera dragging outside the launch zone remains unchanged.
+- Touch camera dragging remains unchanged outside an active aim gesture.
 
 ## Ball queue
 

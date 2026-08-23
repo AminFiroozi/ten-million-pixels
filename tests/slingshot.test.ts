@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { BALL_ORDER, BallType } from "../src/economy";
 import { clampPull, launchSpeedMul, nextBallType, shouldLaunch } from "../src/slingshot";
 
@@ -46,5 +47,16 @@ describe("slingshot ball queue", () => {
     expect(nextBallType(owned, spawned)).toBe("white");
     expect(owned).toEqual(ownedBefore);
     expect(spawned).toEqual(spawnedBefore);
+  });
+});
+
+describe("slingshot launch anchors", () => {
+  it("accepts and preserves an exact arbitrary world-space press anchor", () => {
+    const mainSource = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+
+    expect(mainSource).not.toContain("LAUNCH_ZONE_RADIUS");
+    expect(mainSource).toContain("anchor: Point");
+    expect(mainSource).toContain("physics.spawn(ballType, anchor.x, anchor.y");
+    expect(mainSource).toContain("buildAimPreview(pull, aimState.ballType, aimState.anchor)");
   });
 });
