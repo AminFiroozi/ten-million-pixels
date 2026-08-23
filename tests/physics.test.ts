@@ -30,6 +30,17 @@ describe("physics", () => {
     expect(p.balls[0].vx).toBeLessThan(0);
     expect(p.balls[0].x).toBeLessThan(110);
   });
+  it("continues moving away from a wall after reflecting", () => {
+    const w = emptyWorld();
+    for (let y = 0; y < WORLD_H; y++) w.cells[w.idx(110, y)] = CELL.HARD;
+    const p = new Physics(w);
+    p.spawn("white", 100, 100, 0);
+    p.step(0.2, STATS, () => {});
+    const xAfterHit = p.balls[0].x;
+    expect(p.balls[0].vx).toBeLessThan(0);
+    p.step(0.2, STATS, () => {});
+    expect(p.balls[0].x).toBeLessThan(xAfterHit);
+  });
   it("mines soft pixel and reports via callback", () => {
     const w = emptyWorld();
     w.cells[w.idx(110, 100)] = CELL.SOFT;

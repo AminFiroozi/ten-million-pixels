@@ -24,6 +24,17 @@ export function shouldLaunch(length: number, minPull: number): boolean {
   return length >= minPull;
 }
 
+export function canLaunchAt(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  isSolid: (cellX: number, cellY: number) => boolean,
+): boolean {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= width || y >= height) return false;
+  return !isSolid(Math.floor(x), Math.floor(y));
+}
+
 export function nextBallType(
   owned: Record<BallType, number>,
   spawned: Record<BallType, number>,

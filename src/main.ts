@@ -1,7 +1,7 @@
 import { World, CELL, WORLD_W, WORLD_H } from "./world";
 import { SaveData, diffWorld, applyDiff, saveGame, loadGame, clearSave, normalizeSave, encodeExplored, decodeExplored } from "./save";
 import { EconomyState, BallType, BALL_ORDER, newEconomy, pixelValue, statMul, abilityLevel } from "./economy";
-import { clampPull, launchSpeedMul, nextBallType, shouldLaunch, type Point } from "./slingshot";
+import { canLaunchAt, clampPull, launchSpeedMul, nextBallType, shouldLaunch, type Point } from "./slingshot";
 import { biomeAt, biomeValueMul } from "./biomes";
 import { Physics, AbilityStats } from "./physics";
 import { Renderer, Camera, screenToWorld, worldToScreen, cellColor } from "./render";
@@ -196,6 +196,7 @@ function beginAim(pointerId: number, clientX: number, clientY: number): boolean 
   const ballType = nextBallType(economy.ballsOwned, spawnedCount);
   if (!ballType) return false;
   const anchor = pointerWorldPoint(clientX, clientY);
+  if (!canLaunchAt(anchor.x, anchor.y, WORLD_W, world.cells.length / WORLD_W, (x, y) => world.isSolid(x, y))) return false;
   aimState.active = true;
   aimState.pointerId = pointerId;
   aimState.anchor = anchor;

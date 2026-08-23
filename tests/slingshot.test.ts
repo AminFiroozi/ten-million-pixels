@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { BALL_ORDER, BallType } from "../src/economy";
-import { clampPull, launchSpeedMul, nextBallType, shouldLaunch } from "../src/slingshot";
+import { clampPull, launchSpeedMul, nextBallType, shouldLaunch, canLaunchAt } from "../src/slingshot";
 
 describe("slingshot math", () => {
   it("clamps pull length without changing its direction", () => {
@@ -51,6 +51,12 @@ describe("slingshot ball queue", () => {
 });
 
 describe("slingshot launch anchors", () => {
+  it("rejects launch anchors inside solid or outside the world", () => {
+    expect(canLaunchAt(10.2, 4.8, 20, 20, (x, y) => x === 10 && y === 4)).toBe(false);
+    expect(canLaunchAt(11.2, 4.8, 20, 20, (x, y) => x === 10 && y === 4)).toBe(true);
+    expect(canLaunchAt(-0.1, 4.8, 20, 20, () => false)).toBe(false);
+  });
+
   it("accepts and preserves an exact arbitrary world-space press anchor", () => {
     const mainSource = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
 
