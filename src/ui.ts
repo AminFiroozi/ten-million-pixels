@@ -13,6 +13,7 @@ import {
 } from "./economy";
 import { World, CELL } from "./world";
 import { Camera, BALL_COLORS } from "./render";
+import { AugmentDef } from "./augments";
 import "./style.css";
 
 const MINIMAP_W = 160;
@@ -134,6 +135,7 @@ export class UI {
 
   onBuyBall?: (t: BallType) => void;
   onNewRun?: () => void;
+  onPickAugment?: (id: string) => void;
   pixelsMined = 0;
   treasurePings = false;
 
@@ -158,6 +160,7 @@ export class UI {
   private treasurePingCache: Array<[number, number]>;
 
   private winOverlay: HTMLElement;
+  private augmentOverlay: HTMLElement;
 
   private popups: HTMLElement[];
 
@@ -375,6 +378,10 @@ export class UI {
     this.winOverlay = document.createElement("div");
     this.winOverlay.className = "win-overlay hidden";
     root.appendChild(this.winOverlay);
+
+    this.augmentOverlay = document.createElement("div");
+    this.augmentOverlay.className = "augment-overlay hidden";
+    root.appendChild(this.augmentOverlay);
 
     this.update();
   }
@@ -629,5 +636,46 @@ export class UI {
 
     this.winOverlay.appendChild(panel);
     this.winOverlay.classList.remove("hidden");
+  }
+
+  showAugmentChoice(defs: AugmentDef[]): void {
+    this.augmentOverlay.textContent = "";
+
+    const panel = document.createElement("div");
+    panel.className = "augment-panel";
+
+    const title = document.createElement("div");
+    title.className = "augment-title";
+    title.textContent = "CHOOSE AN AUGMENT";
+    panel.appendChild(title);
+
+    const cardRow = document.createElement("div");
+    cardRow.className = "augment-cards";
+
+    for (const def of defs) {
+      const card = document.createElement("button");
+      card.className = "augment-card";
+
+      const name = document.createElement("div");
+      name.className = "augment-card-name";
+      name.textContent = def.name;
+      card.appendChild(name);
+
+      const desc = document.createElement("div");
+      desc.className = "augment-card-desc";
+      desc.textContent = def.desc;
+      card.appendChild(desc);
+
+      card.addEventListener("click", () => {
+        this.augmentOverlay.classList.add("hidden");
+        this.onPickAugment?.(def.id);
+      });
+
+      cardRow.appendChild(card);
+    }
+
+    panel.appendChild(cardRow);
+    this.augmentOverlay.appendChild(panel);
+    this.augmentOverlay.classList.remove("hidden");
   }
 }
