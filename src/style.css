@@ -10,6 +10,7 @@
 }
 
 .hud-topleft,
+.combo-feedback,
 .shop-bar,
 .upgrade-tab,
 .upgrade-panel,
@@ -45,6 +46,25 @@
 .hud-sub {
   font-size: 13px;
   opacity: 0.85;
+}
+
+.combo-feedback {
+  position: fixed;
+  top: 82px;
+  left: 12px;
+  min-width: 196px;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid rgba(125, 255, 154, 0.7);
+  background: rgba(5, 10, 6, 0.82);
+  color: #7dff9a;
+  font: 12px monospace;
+  font-weight: bold;
+  line-height: 1.2;
+  text-align: center;
+  pointer-events: none;
+  z-index: 12;
+  white-space: nowrap;
 }
 
 .shop-bar {

@@ -26,6 +26,14 @@ export interface AbilityStats {
 
 export type MineCallback = (cell: number, x: number, y: number) => void;
 
+export interface ImpactContext {
+  x: number;
+  y: number;
+  cell: number;
+  ballType: BallType;
+  destroyed: boolean;
+}
+
 const BASE_SPEED = 90;
 const MAX_SUBSTEP = 0.9;
 const POISON_TICK = 0.5;
@@ -63,9 +71,15 @@ export class Physics {
     this.balls.push(ball);
   }
 
-  step(dt: number, stats: AbilityStats, onMined: MineCallback, onMoltenHit?: (x: number, y: number) => void): void {
+  step(
+    dt: number,
+    stats: AbilityStats,
+    onMined: MineCallback,
+    onMoltenHit?: (x: number, y: number) => void,
+    onImpact?: (context: ImpactContext) => void
+  ): void {
     for (const ball of this.balls) {
-      this.moveBall(ball, dt, stats, onMined, onMoltenHit);
+      this.moveBall(ball, dt, stats, onMined, onMoltenHit, onImpact);
     }
 
     this.tickPoison(dt, stats, onMined);
@@ -84,7 +98,14 @@ export class Physics {
     );
   }
 
-  private moveBall(ball: Ball, dt: number, stats: AbilityStats, onMined: MineCallback, onMoltenHit?: (x: number, y: number) => void): void {
+  private moveBall(
+    ball: Ball,
+    dt: number,
+    stats: AbilityStats,
+    onMined: MineCallback,
+    onMoltenHit?: (x: number, y: number) => void,
+    onImpact?: (context: ImpactContext) => void
+  ): void {
     const speedScale = ball.type === "purple" ? 0.6 : 1;
     const totalDist = BASE_SPEED * stats.speedMul * dt * speedScale;
     const speed = Math.hypot(ball.vx, ball.vy);
@@ -105,7 +126,7 @@ export class Physics {
       const ny = ball.y + dirY * moveDist;
 
       if (this.world.isSolid(Math.floor(nx), Math.floor(ny))) {
-        const passThrough = this.resolveCollision(ball, nx, ny, stats, onMined, onMoltenHit);
+        const passThrough = this.resolveCollision(ball, nx, ny, stats, onMined, onMoltenHit, onImpact);
         if (!passThrough) break;
 
         ball.x = nx;
@@ -123,7 +144,15 @@ export class Physics {
     }
   }
 
-  private resolveCollision(ball: Ball, nx: number, ny: number, stats: AbilityStats, onMined: MineCallback, onMoltenHit?: (x: number, y: number) => void): boolean {
+  private resolveCollision(
+    ball: Ball,
+    nx: number,
+    ny: number,
+    stats: AbilityStats,
+    onMined: MineCallback,
+    onMoltenHit?: (x: number, y: number) => void,
+    onImpact?: (context: ImpactContext) => void
+  ): boolean {
     const hitX = Math.floor(nx);
     const hitY = Math.floor(ny);
     const solidX = this.world.isSolid(Math.floor(nx), Math.floor(ball.y));
@@ -141,10 +170,10 @@ export class Physics {
       if (isMolten) {
         if (solidX || (!solidX && !solidY)) ball.vx *= MOLTEN_BOUNCE_MUL;
         if (solidY || (!solidX && !solidY)) ball.vy *= MOLTEN_BOUNCE_MUL;
-        const m = Math.hypot(ball.vx, ball.vy);
-        if (m > 0) {
-          ball.vx = (ball.vx / m) * BASE_SPEED;
-          ball.vy = (ball.vy / m) * BASE_SPEED;
+        const magnitude = Math.hypot(ball.vx, ball.vy);
+        if (magnitude > 0) {
+          ball.vx = (ball.vx / magnitude) * BASE_SPEED;
+          ball.vy = (ball.vy / magnitude) * BASE_SPEED;
         }
       }
       if (ball.type === "blue") this.snapToAxis(ball);
@@ -157,6 +186,7 @@ export class Physics {
     if (ball.type === "yellow" && ball.pierceLeft > 0) {
       const destroyed = this.world.hit(hitX, hitY, 999);
       if (destroyed) onMined(destroyed, hitX, hitY);
+      onImpact?.({ x: hitX, y: hitY, cell: destroyed || this.world.get(hitX, hitY), ballType: ball.type, destroyed: destroyed !== 0 });
       ball.pierceLeft -= 1;
       return true;
     }
@@ -164,6 +194,7 @@ export class Physics {
     const damage = 1 * stats.dmgMul * (ball.type === "purple" ? 5 : 1);
     const destroyed = this.world.hit(hitX, hitY, damage);
     if (destroyed) onMined(destroyed, hitX, hitY);
+    onImpact?.({ x: hitX, y: hitY, cell: destroyed || this.world.get(hitX, hitY), ballType: ball.type, destroyed: destroyed !== 0 });
 
     if (ball.type === "red") {
       this.smash(hitX, hitY, stats.smashRadius, damage, onMined);

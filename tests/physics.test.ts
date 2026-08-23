@@ -41,6 +41,24 @@ describe("physics", () => {
     expect(mined).toContain(CELL.SOFT);
     expect(w.get(110, 100)).toBe(CELL.EMPTY);
   });
+  it("reports direct impact context while preserving the mined callback", () => {
+    const w = emptyWorld();
+    w.cells[w.idx(110, 100)] = CELL.SOFT;
+    for (let y = 0; y < WORLD_H; y++) if (y !== 100) w.cells[w.idx(110, y)] = CELL.HARD;
+    const p = new Physics(w);
+    p.spawn("purple", 105, 100, 0);
+    const mined: number[] = [];
+    const impacts: Array<{ x: number; y: number; cell: number; ballType: string; destroyed: boolean }> = [];
+    p.step(
+      0.2,
+      STATS,
+      c => mined.push(c),
+      undefined,
+      context => impacts.push(context)
+    );
+    expect(mined).toContain(CELL.SOFT);
+    expect(impacts).toContainEqual({ x: 110, y: 100, cell: CELL.SOFT, ballType: "purple", destroyed: true });
+  });
   it("culls non-finite balls", () => {
     const p = new Physics(emptyWorld());
     p.spawn("white", 100, 100, 0);
@@ -71,7 +89,7 @@ describe("physics", () => {
 });
 
 describe("molten and dark speed", () => {
-  it("molten collision bounces the ball and renormalizes speed back to BASE_SPEED", () => {
+  it("molten collision gives a controlled hard bounce and fires onMoltenHit", () => {
     const seed = 3;
     const w = World.generate(seed);
     let mx = -1, my = -1;
@@ -87,7 +105,7 @@ describe("molten and dark speed", () => {
     expect(p.balls.length).toBe(1);
     expect(p.balls[0].vx).toBeLessThan(0);
     const speedAfter = Math.hypot(p.balls[0].vx, p.balls[0].vy);
-    expect(speedAfter).toBeCloseTo(speedBefore, 1);
+    expect(speedAfter).toBeCloseTo(90, 1);
     expect(moltenHitAt).toEqual([mx, my]);
   });
   it("ball survives many consecutive molten bounces without dying", () => {

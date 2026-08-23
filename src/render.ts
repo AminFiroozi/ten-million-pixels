@@ -3,6 +3,7 @@ import { hashCoords } from "./rng";
 import { Ball } from "./physics";
 import { BallType } from "./economy";
 import { Biome, biomeAt } from "./biomes";
+import { VisualEffectsState } from "./visual-effects";
 
 export interface Camera {
   x: number;
@@ -260,6 +261,7 @@ export class Renderer {
   private particles: Particle[];
   private time: number;
   private ballSprites: Map<BallType, CanvasLike>;
+  private readonly effects: VisualEffectsState;
 
   constructor(world: World, canvas: HTMLCanvasElement) {
     this.world = world;
@@ -275,6 +277,7 @@ export class Renderer {
     this.particles = [];
     this.time = 0;
     this.ballSprites = new Map();
+    this.effects = new VisualEffectsState();
     for (const type of Object.keys(BALL_COLORS) as BallType[]) {
       this.ballSprites.set(type, makeBallSprite(BALL_COLORS[type]));
     }
@@ -318,6 +321,12 @@ export class Renderer {
     if (this.particles.length > MAX_PARTICLES) {
       this.particles.splice(0, this.particles.length - MAX_PARTICLES);
     }
+  }
+
+  addImpact(x: number, y: number, color: string, strength = 1, cascadeDepth = 0): void {
+    this.effects.addImpact({ x, y, color, strength, cascadeDepth });
+    const direction = ((x * 17 + y * 31) % 2 === 0 ? 1 : -1) * Math.min(0.8, strength * 0.12);
+    this.effects.addImpulse(direction, -direction * 0.6);
   }
 
   private getOrCreateChunk(cx: number, cy: number): Chunk {
@@ -432,6 +441,41 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
+  private drawTrails(cam: Camera, w: number, h: number): void {
+    const ctx = this.ctx;
+    for (const trail of this.effects.trails) {
+      const age = trail.age ?? 0;
+      const alpha = Math.max(0, 0.28 * (1 - age / 0.24));
+      if (alpha === 0) continue;
+      const [sx, sy] = worldToScreen(cam, w, h, trail.x, trail.y);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = BALL_COLORS[trail.type];
+      const size = Math.max(1, cam.zoom * (0.8 - age * 2));
+      ctx.fillRect(sx - size / 2, sy - size / 2, size, size);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  private drawImpacts(cam: Camera, w: number, h: number): void {
+    const ctx = this.ctx;
+    for (const impact of this.effects.impacts) {
+      const progress = Math.min(1, impact.age / impact.life);
+      const alpha = Math.max(0, 1 - progress);
+      const [sx, sy] = worldToScreen(cam, w, h, impact.x, impact.y);
+      const radius = cam.zoom * (1 + progress * (2 + impact.cascadeDepth * 0.5)) * impact.strength;
+      ctx.globalAlpha = alpha * 0.8;
+      ctx.strokeStyle = impact.color;
+      ctx.lineWidth = Math.max(1, cam.zoom * 0.35);
+      ctx.beginPath();
+      ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = impact.color;
+      ctx.fillRect(sx - 1, sy - 1, 2, 2);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   private drawBalls(cam: Camera, w: number, h: number, balls: Ball[]): void {
     const ctx = this.ctx;
     const half = SPRITE_SIZE / 2;
@@ -466,6 +510,13 @@ export class Renderer {
 
   draw(cam: Camera, balls: Ball[], dt: number): void {
     this.time += dt;
+    for (const ball of balls) this.effects.pushTrail({ x: ball.x, y: ball.y, type: ball.type });
+    this.effects.advance(dt);
+    const visualCam: Camera = {
+      x: cam.x - this.effects.impulse.x,
+      y: cam.y - this.effects.impulse.y,
+      zoom: cam.zoom,
+    };
     const w = this.canvas.width;
     const h = this.canvas.height;
     const ctx = this.ctx;
@@ -474,8 +525,8 @@ export class Renderer {
     ctx.fillStyle = BG_COLOR;
     ctx.fillRect(0, 0, w, h);
 
-    const [wx0, wy0] = screenToWorld(cam, w, h, 0, 0);
-    const [wx1, wy1] = screenToWorld(cam, w, h, w, h);
+    const [wx0, wy0] = screenToWorld(visualCam, w, h, 0, 0);
+    const [wx1, wy1] = screenToWorld(visualCam, w, h, w, h);
     const cx0 = Math.max(0, Math.floor(Math.min(wx0, wx1) / CHUNK));
     const cy0 = Math.max(0, Math.floor(Math.min(wy0, wy1) / CHUNK));
     const cx1 = Math.min(this.chunksX - 1, Math.floor(Math.max(wx0, wx1) / CHUNK));
@@ -486,15 +537,17 @@ export class Renderer {
         const chunk = this.ensureChunkRastered(cx, cy);
         const x0 = cx * CHUNK;
         const y0 = cy * CHUNK;
-        const [sx, sy] = worldToScreen(cam, w, h, x0, y0);
-        const size = CHUNK * cam.zoom;
+        const [sx, sy] = worldToScreen(visualCam, w, h, x0, y0);
+        const size = CHUNK * visualCam.zoom;
         ctx.drawImage(chunk.canvas, sx, sy, size, size);
       }
     }
 
-    this.drawBalls(cam, w, h, balls);
+    this.drawTrails(visualCam, w, h);
+    this.drawBalls(visualCam, w, h, balls);
+    this.drawImpacts(visualCam, w, h);
     this.updateParticles(dt);
-    this.drawParticles(cam, w, h);
-    this.drawPulseOverlay(cam, w, h, cx0, cy0, cx1, cy1);
+    this.drawParticles(visualCam, w, h);
+    this.drawPulseOverlay(visualCam, w, h, cx0, cy0, cx1, cy1);
   }
 }

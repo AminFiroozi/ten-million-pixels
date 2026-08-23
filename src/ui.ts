@@ -14,6 +14,7 @@ import {
 import { World, CELL } from "./world";
 import { Camera, BALL_COLORS } from "./render";
 import { AugmentDef } from "./augments";
+import { formatCombo } from "./ui-format";
 import "./style.css";
 
 const MINIMAP_W = 160;
@@ -36,6 +37,7 @@ const NEUTRAL_COLOR = "#888";
 const NEW_RUN_CONFIRM_MS = 5000;
 const POPUP_LIFETIME_MS = 1200;
 const POPUP_MAX = 20;
+const COMBO_FEEDBACK_LIFETIME_MS = 900;
 const RADAR_PULSE_MS = 300;
 const TOUCH_TAP_WINDOW_MS = 3000;
 
@@ -142,6 +144,8 @@ export class UI {
   private currencyEl: HTMLElement;
   private upgradePointsEl: HTMLElement;
   private pixelsMinedEl: HTMLElement;
+  private comboEl: HTMLElement;
+  private comboTimer: number | null;
 
   private shopRows: Map<BallType, ShopRow>;
 
@@ -186,6 +190,7 @@ export class UI {
     this.radarEl = null;
     this.radarArrow = null;
     this.radarPulseTimer = null;
+    this.comboTimer = null;
     this.augmentShownAt = 0;
 
     const hud = document.createElement("div");
@@ -200,6 +205,10 @@ export class UI {
     hud.appendChild(this.upgradePointsEl);
     hud.appendChild(this.pixelsMinedEl);
     root.appendChild(hud);
+
+    this.comboEl = document.createElement("div");
+    this.comboEl.className = "combo-feedback hidden";
+    root.appendChild(this.comboEl);
 
     const shopBar = document.createElement("div");
     shopBar.className = "shop-bar";
@@ -563,6 +572,26 @@ export class UI {
       const idx = this.popups.indexOf(el);
       if (idx !== -1) this.popups.splice(idx, 1);
     }, POPUP_LIFETIME_MS);
+  }
+
+  showCombo(combo: number, cascadeCount: number): void {
+    const label = formatCombo(combo, cascadeCount);
+    if (this.comboTimer !== null) {
+      window.clearTimeout(this.comboTimer);
+      this.comboTimer = null;
+    }
+
+    if (!label) {
+      this.comboEl.classList.add("hidden");
+      return;
+    }
+
+    this.comboEl.textContent = label;
+    this.comboEl.classList.remove("hidden");
+    this.comboTimer = window.setTimeout(() => {
+      this.comboEl.classList.add("hidden");
+      this.comboTimer = null;
+    }, COMBO_FEEDBACK_LIFETIME_MS);
   }
 
   updateRadar(angle: number, distance: number): void {

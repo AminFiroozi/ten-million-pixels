@@ -6,6 +6,8 @@ import { Physics, AbilityStats } from "./physics";
 import { Renderer, Camera, screenToWorld, worldToScreen, cellColor } from "./render";
 import { UI } from "./ui";
 import { AugmentState, newAugmentState, augmentMul, augmentBonus, pickAugment, rollChoices } from "./augments";
+import { resolveFracture, FRACTURE_MAX_DEPTH } from "./erosion";
+import { advanceCombo, type ComboState } from "./combo";
 
 const SIM_DT = 1 / 120;
 const MAX_SIM_STEPS = 5;
@@ -27,6 +29,8 @@ let stats: { pixelsMined: number; startedAt: number; won: boolean };
 let augmentState: AugmentState;
 let upgradePointsSinceAugment = 0;
 let pendingAugmentOffers = 0;
+let comboState: ComboState = { count: 0, lastMinedAt: null };
+let cascadeCount = 0;
 
 if (save) {
   world = World.generate(save.seed);
@@ -309,6 +313,9 @@ function showNextAugmentOffer(): void {
 }
 
 function onMined(cell: number, x: number, y: number): void {
+  const previousCombo = comboState.count;
+  comboState = advanceCombo(comboState, 1, performance.now());
+  ui.showCombo(comboState.count, cascadeCount);
   const revealRadius = 6 + 2 * abilityLevel(economy, "revealRadius") + augmentBonus(augmentState, "revealRadius");
   world.reveal(x, y, revealRadius);
   economy.currency += Math.ceil(pixelValue(cell) * biomeValueMul(biomeAt(x, y, world.seed)) * augmentMul(augmentState, "pixelValueMul"));
@@ -358,6 +365,29 @@ function onMined(cell: number, x: number, y: number): void {
   }
   uiDirty = true;
   showNextAugmentOffer();
+}
+
+function onImpact(context: { x: number; y: number; cell: number; ballType: BallType; destroyed: boolean }): void {
+  const impactColor = context.destroyed ? cellColor(context.cell, context.x, context.y, world.seed) : "#fff";
+  renderer.addImpact(context.x + 0.5, context.y + 0.5, impactColor, context.destroyed ? 1 : 0.5);
+  if (!context.destroyed || ![CELL.SOFT, CELL.MED, CELL.HARD].includes(context.cell)) return;
+
+  const before = new Map<string, number>();
+  for (let y = context.y - FRACTURE_MAX_DEPTH; y <= context.y + FRACTURE_MAX_DEPTH; y++) {
+    for (let x = context.x - FRACTURE_MAX_DEPTH; x <= context.x + FRACTURE_MAX_DEPTH; x++) {
+      before.set(`${x},${y}`, world.get(x, y));
+    }
+  }
+  const result = resolveFracture(world, context.x, context.y, 1, world.seed ^ (context.x * 73856093) ^ (context.y * 19349663));
+  for (const cell of result.processed) {
+    if (world.get(cell.x, cell.y) !== CELL.EMPTY) continue;
+    const minedCell = before.get(`${cell.x},${cell.y}`) ?? CELL.EMPTY;
+    if (minedCell === CELL.EMPTY) continue;
+    onMined(minedCell, cell.x, cell.y);
+    cascadeCount++;
+    renderer.addImpact(cell.x + 0.5, cell.y + 0.5, cellColor(minedCell, cell.x, cell.y, world.seed), 0.8, cell.depth);
+  }
+  ui.showCombo(comboState.count, cascadeCount);
 }
 
 let moltenBurstsThisFrame = 0;
@@ -466,6 +496,12 @@ function frame(now: number): void {
     dt = Math.min(dt, 0.25);
 
     moltenBurstsThisFrame = 0;
+    const previousCombo = comboState.count;
+    comboState = advanceCombo(comboState, 0, now);
+    if (comboState.count === 0 && previousCombo !== 0) {
+      cascadeCount = 0;
+      ui.showCombo(0, 0);
+    }
 
     if (!paused) {
       acc += dt;
@@ -473,7 +509,7 @@ function frame(now: number): void {
       const abilityStats = buildAbilityStats();
       let steps = 0;
       while (acc >= SIM_DT && steps < MAX_SIM_STEPS) {
-        physics.step(SIM_DT, abilityStats, onMined, onMoltenHit);
+        physics.step(SIM_DT, abilityStats, onMined, onMoltenHit, onImpact);
         acc -= SIM_DT;
         steps++;
       }
