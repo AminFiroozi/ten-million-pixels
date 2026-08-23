@@ -127,13 +127,57 @@ describe("explored RLE", () => {
 });
 
 describe("v1 migration", () => {
-  it("v1 save loads as v2 with empty exploredRuns", () => {
+  it("v1 save loads as v3 with empty exploredRuns", () => {
     const v1 = { version: 1, seed: 9, changes: [5, 0], currency: 10, upgradePoints: 1, upgrades: {}, ballsOwned: { white: 3 }, stats: { pixelsMined: 4, startedAt: 123, won: false } };
     localStorage.setItem("tmp-save", JSON.stringify(v1));
     const loaded = loadGame();
     expect(loaded).not.toBeNull();
-    expect(loaded!.version).toBe(2);
+    expect(loaded!.version).toBe(3);
     expect(loaded!.exploredRuns).toEqual([]);
     expect(loaded!.currency).toBe(10);
+  });
+});
+
+describe("save v3", () => {
+  it("v2 save migrates to v3 with empty augments", () => {
+    const v2 = { version: 2, seed: 5, changes: [], currency: 1, upgradePoints: 0, upgrades: {}, ballsOwned: { white: 1 }, stats: { pixelsMined: 0, startedAt: 1, won: false }, exploredRuns: [] };
+    localStorage.setItem("tmp-save", JSON.stringify(v2));
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.version).toBe(3);
+    expect(loaded!.augments).toEqual([]);
+    expect(loaded!.augmentRngState).toBe(13);
+  });
+
+  it("v1 save migrates all the way to v3", () => {
+    const v1 = { version: 1, seed: 9, changes: [], currency: 10, upgradePoints: 1, upgrades: {}, ballsOwned: { white: 3 }, stats: { pixelsMined: 4, startedAt: 123, won: false } };
+    localStorage.setItem("tmp-save", JSON.stringify(v1));
+    const loaded = loadGame();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.version).toBe(3);
+    expect(loaded!.augments).toEqual([]);
+    expect(loaded!.currency).toBe(10);
+  });
+
+  it("normalizeSave coerces a malformed augments/augmentRngState", () => {
+    const raw = {
+      version: 3, seed: 5, changes: [], currency: 0, upgradePoints: 0, upgrades: {},
+      ballsOwned: { white: 1 }, stats: { pixelsMined: 0, startedAt: 1, won: false },
+      exploredRuns: [], augments: "not-an-array", augmentRngState: "nope",
+    } as unknown as SaveData;
+    const normalized = normalizeSave(raw);
+    expect(normalized.augments).toEqual([]);
+    expect(normalized.augmentRngState).toBe(13);
+  });
+
+  it("normalizeSave preserves valid augments", () => {
+    const raw = {
+      version: 3, seed: 5, changes: [], currency: 0, upgradePoints: 0, upgrades: {},
+      ballsOwned: { white: 1 }, stats: { pixelsMined: 0, startedAt: 1, won: false },
+      exploredRuns: [], augments: ["aug_momentum", "aug_blast"], augmentRngState: 999,
+    } as unknown as SaveData;
+    const normalized = normalizeSave(raw);
+    expect(normalized.augments).toEqual(["aug_momentum", "aug_blast"]);
+    expect(normalized.augmentRngState).toBe(999);
   });
 });

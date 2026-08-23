@@ -335,7 +335,7 @@ let savingDisabled = false;
 function doSave(): void {
   if (savingDisabled) return;
   const data: SaveData = {
-    version: 2,
+    version: 3,
     seed: world.seed,
     changes: diffWorld(world),
     currency: economy.currency,
@@ -344,6 +344,8 @@ function doSave(): void {
     ballsOwned: economy.ballsOwned,
     stats,
     exploredRuns: encodeExplored(world.explored),
+    augments: [],
+    augmentRngState: 0,
   };
   saveGame(data);
 }

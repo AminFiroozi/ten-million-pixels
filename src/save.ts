@@ -2,6 +2,20 @@ import { World } from "./world";
 import { BallType, BALL_ORDER } from "./economy";
 
 export interface SaveData {
+  version: 3;
+  seed: number;
+  changes: number[];
+  currency: number;
+  upgradePoints: number;
+  upgrades: Record<string, number>;
+  ballsOwned: Record<string, number>;
+  stats: { pixelsMined: number; startedAt: number; won: boolean };
+  exploredRuns: number[];
+  augments: string[];
+  augmentRngState: number;
+}
+
+interface SaveDataV2 {
   version: 2;
   seed: number;
   changes: number[];
@@ -60,8 +74,12 @@ export function decodeExplored(runs: number[], out: Uint8Array): void {
   }
 }
 
-export function migrateV1(old: { seed: number; changes: number[]; [k: string]: unknown }): SaveData {
-  return { ...old, version: 2, exploredRuns: [] } as unknown as SaveData;
+export function migrateV1(old: { seed: number; changes: number[]; [k: string]: unknown }): SaveDataV2 {
+  return { ...old, version: 2, exploredRuns: [] } as unknown as SaveDataV2;
+}
+
+export function migrateV2to3(old: SaveDataV2): SaveData {
+  return { ...old, version: 3, augments: [], augmentRngState: old.seed + 8 };
 }
 
 export function saveGame(data: SaveData): void {
@@ -78,9 +96,13 @@ export function loadGame(): SaveData | null {
   try {
     const data = JSON.parse(raw) as { version: number; [k: string]: unknown };
     if (data.version === 1) {
-      return migrateV1(data as unknown as { seed: number; changes: number[]; [k: string]: unknown });
+      const v2 = migrateV1(data as unknown as { seed: number; changes: number[]; [k: string]: unknown });
+      return migrateV2to3(v2);
     }
-    if (data.version !== 2) {
+    if (data.version === 2) {
+      return migrateV2to3(data as unknown as SaveDataV2);
+    }
+    if (data.version !== 3) {
       console.warn("loadGame: save has unexpected version, discarding");
       return null;
     }
@@ -131,6 +153,14 @@ export function normalizeSave(data: SaveData): SaveData {
   if (!exploredRunsValid) corrected.push("exploredRuns");
   const exploredRuns = exploredRunsValid ? rawExploredRuns : [];
 
+  const rawAugments = data.augments;
+  const augmentsValid = Array.isArray(rawAugments) && rawAugments.every((v) => typeof v === "string");
+  if (!augmentsValid) corrected.push("augments");
+  const augments = augmentsValid ? rawAugments : [];
+
+  const augmentRngStateValid = typeof data.augmentRngState === "number" && Number.isFinite(data.augmentRngState);
+  if (!augmentRngStateValid) corrected.push("augmentRngState");
+
   const seedValid = typeof data.seed === "number" && Number.isFinite(data.seed);
   if (!seedValid) corrected.push("seed");
 
@@ -157,7 +187,7 @@ export function normalizeSave(data: SaveData): SaveData {
   }
 
   return {
-    version: 2,
+    version: 3,
     seed: seedValid ? data.seed : 0,
     changes: changesValid ? data.changes : [],
     currency: currencyValid ? data.currency : 0,
@@ -170,5 +200,7 @@ export function normalizeSave(data: SaveData): SaveData {
       won: wonValid ? (rawStats.won as boolean) : false,
     },
     exploredRuns,
+    augments,
+    augmentRngState: augmentRngStateValid ? data.augmentRngState : (seedValid ? data.seed : 0) + 8,
   };
 }
