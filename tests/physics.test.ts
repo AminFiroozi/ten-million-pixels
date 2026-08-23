@@ -71,7 +71,7 @@ describe("physics", () => {
 });
 
 describe("molten and dark speed", () => {
-  it("molten collision bounces the ball harder and never destroys it", () => {
+  it("molten collision bounces the ball and renormalizes speed back to BASE_SPEED", () => {
     const seed = 3;
     const w = World.generate(seed);
     let mx = -1, my = -1;
@@ -87,7 +87,7 @@ describe("molten and dark speed", () => {
     expect(p.balls.length).toBe(1);
     expect(p.balls[0].vx).toBeLessThan(0);
     const speedAfter = Math.hypot(p.balls[0].vx, p.balls[0].vy);
-    expect(speedAfter).toBeCloseTo(speedBefore * 1.6, 1);
+    expect(speedAfter).toBeCloseTo(speedBefore, 1);
     expect(moltenHitAt).toEqual([mx, my]);
   });
   it("ball survives many consecutive molten bounces without dying", () => {
@@ -105,6 +105,24 @@ describe("molten and dark speed", () => {
     p.spawn("white", mx + 1.5, my, 0);
     for (let i = 0; i < 400; i++) p.step(1 / 60, DSTATS, () => {});
     expect(p.balls.length).toBe(1);
+  });
+  it("ball survives 3000+ consecutive molten bounces with velocity staying bounded and finite", () => {
+    const seed = 3;
+    const w = World.generate(seed);
+    let mx = -1, my = -1;
+    outer: for (let y = 100; y < WORLD_H; y++) for (let x = 100; x < WORLD_W; x++)
+      if (biomeAt(x, y, w.seed) === "molten" && biomeAt(x + 2, y, w.seed) === "molten") { mx = x; my = y; break outer; }
+    w.cells.fill(CELL.EMPTY);
+    for (let y = 0; y < WORLD_H; y++) {
+      w.cells[w.idx(mx, y)] = CELL.HARD;
+      w.cells[w.idx(mx + 2, y)] = CELL.HARD;
+    }
+    const p = new Physics(w);
+    p.spawn("white", mx + 1.5, my, 0);
+    for (let i = 0; i < 3000; i++) p.step(1 / 60, DSTATS, () => {});
+    expect(p.balls.length).toBe(1);
+    expect(Number.isFinite(p.balls[0].vx) && Number.isFinite(p.balls[0].vy)).toBe(true);
+    expect(Math.hypot(p.balls[0].vx, p.balls[0].vy)).toBeLessThan(1000);
   });
   it("dark speed multiplier applies in unexplored cells", () => {
     const w = World.generate(3);

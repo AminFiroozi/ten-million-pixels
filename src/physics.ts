@@ -141,6 +141,11 @@ export class Physics {
       if (isMolten) {
         if (solidX || (!solidX && !solidY)) ball.vx *= MOLTEN_BOUNCE_MUL;
         if (solidY || (!solidX && !solidY)) ball.vy *= MOLTEN_BOUNCE_MUL;
+        const m = Math.hypot(ball.vx, ball.vy);
+        if (m > 0) {
+          ball.vx = (ball.vx / m) * BASE_SPEED;
+          ball.vy = (ball.vy / m) * BASE_SPEED;
+        }
       }
       if (ball.type === "blue") this.snapToAxis(ball);
     };
