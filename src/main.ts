@@ -5,12 +5,14 @@ import { biomeAt, biomeValueMul } from "./biomes";
 import { Physics, AbilityStats } from "./physics";
 import { Renderer, Camera, screenToWorld, worldToScreen, cellColor } from "./render";
 import { UI } from "./ui";
+import { AugmentState, newAugmentState, augmentMul, augmentBonus, pickAugment, rollChoices } from "./augments";
 
 const SIM_DT = 1 / 120;
 const MAX_SIM_STEPS = 5;
 const SPAWN_CAVITY_X = 640;
 const SPAWN_CAVITY_Y = 400;
 const AUTOSAVE_MS = 10000;
+const AUGMENT_MILESTONE = 20;
 const RADAR_INTERVAL_S = 2;
 const PINCH_ZOOM_MIN = 0.5;
 const PINCH_ZOOM_MAX = 24;
@@ -22,6 +24,7 @@ const save = rawSave ? normalizeSave(rawSave) : null;
 let world: World;
 let economy: EconomyState;
 let stats: { pixelsMined: number; startedAt: number; won: boolean };
+let augmentState: AugmentState;
 
 if (save) {
   world = World.generate(save.seed);
@@ -45,10 +48,12 @@ if (save) {
     ballsOwned: save.ballsOwned as Record<BallType, number>,
   };
   stats = { ...save.stats };
+  augmentState = { picked: save.augments, rngState: save.augmentRngState };
 } else {
   world = World.generate(Date.now() >>> 0);
   economy = newEconomy();
   stats = { pixelsMined: 0, startedAt: Date.now(), won: false };
+  augmentState = newAugmentState(world.seed);
 }
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
@@ -125,10 +130,11 @@ canvas.addEventListener(
 );
 
 function spawnWaveAt(clientX: number, clientY: number): void {
+  if (paused) return;
   const [tx, ty] = screenToWorld(cam, canvas.width, canvas.height, clientX, clientY);
   const baseAngle = Math.atan2(ty - SPAWN_CAVITY_Y, tx - SPAWN_CAVITY_X);
-  const launchSpeedMul = statMul(economy, "launchSpeed");
-  let remaining = 20 + 10 * abilityLevel(economy, "launchWave");
+  const launchSpeedMul = statMul(economy, "launchSpeed") * augmentMul(augmentState, "launchSpeed");
+  let remaining = 20 + 10 * abilityLevel(economy, "launchWave") + augmentBonus(augmentState, "launchWave");
   for (const t of BALL_ORDER) {
     if (remaining <= 0) break;
     const owned = economy.ballsOwned[t];
@@ -267,17 +273,43 @@ function updateCameraPan(dt: number): void {
 }
 
 let uiDirty = false;
+let upgradePointsSinceAugment = 0;
+let pendingAugmentOffers = 0;
+let augmentOfferOpen = false;
+let paused = false;
+
+function addUpgradePoints(n: number): void {
+  economy.upgradePoints += n;
+  upgradePointsSinceAugment += n;
+  while (upgradePointsSinceAugment >= AUGMENT_MILESTONE) {
+    upgradePointsSinceAugment -= AUGMENT_MILESTONE;
+    pendingAugmentOffers++;
+  }
+}
+
+function showNextAugmentOffer(): void {
+  if (augmentOfferOpen || pendingAugmentOffers <= 0) return;
+  const defs = rollChoices(augmentState, 3);
+  if (defs.length === 0) {
+    pendingAugmentOffers--;
+    showNextAugmentOffer();
+    return;
+  }
+  augmentOfferOpen = true;
+  paused = true;
+  ui.showAugmentChoice(defs);
+}
 
 function onMined(cell: number, x: number, y: number): void {
-  const revealRadius = 6 + 2 * abilityLevel(economy, "revealRadius");
+  const revealRadius = 6 + 2 * abilityLevel(economy, "revealRadius") + augmentBonus(augmentState, "revealRadius");
   world.reveal(x, y, revealRadius);
-  economy.currency += Math.ceil(pixelValue(cell) * biomeValueMul(biomeAt(x, y, world.seed)));
+  economy.currency += Math.ceil(pixelValue(cell) * biomeValueMul(biomeAt(x, y, world.seed)) * augmentMul(augmentState, "pixelValueMul"));
   stats.pixelsMined++;
   renderer.addBurst(x + 0.5, y + 0.5, cellColor(cell, x, y, world.seed));
-  if (cell === CELL.UPGRADE) economy.upgradePoints++;
+  if (cell === CELL.UPGRADE) addUpgradePoints(1);
 
   if (cell === CELL.TREASURE) {
-    const amount = Math.ceil(100 * (1 + 2 * world.edgeAt(x, y)));
+    const amount = Math.ceil(100 * (1 + 2 * world.edgeAt(x, y)) * augmentMul(augmentState, "treasureMul"));
     economy.currency += amount;
     const [sx, sy] = worldToScreen(cam, canvas.width, canvas.height, x, y);
     ui.showPopup?.("+" + amount, sx, sy);
@@ -286,9 +318,10 @@ function onMined(cell: number, x: number, y: number): void {
   if (cell === CELL.BOSS) {
     const bossId = world.registerBossCellMined(x, y);
     if (bossId !== -1) {
-      const amount = Math.ceil(2000 * (1 + world.edgeAt(x, y)));
+      const amount = Math.ceil(2000 * (1 + world.edgeAt(x, y)) * augmentMul(augmentState, "bossMul"));
       economy.currency += amount;
-      economy.upgradePoints += 3;
+      addUpgradePoints(3);
+      pendingAugmentOffers++;
       for (let dy = -6; dy <= 6; dy++) {
         for (let dx = -6; dx <= 6; dx++) {
           const cx = x + dx;
@@ -316,16 +349,21 @@ function onMined(cell: number, x: number, y: number): void {
     });
   }
   uiDirty = true;
+  showNextAugmentOffer();
+}
+
+function onMoltenHit(x: number, y: number): void {
+  renderer.addBurst(x + 0.5, y + 0.5, "#f63");
 }
 
 function buildAbilityStats(): AbilityStats {
   return {
-    speedMul: statMul(economy, "speed"),
-    dmgMul: statMul(economy, "damage"),
-    smashRadius: 1 + abilityLevel(economy, "smashRadius"),
-    poisonSpread: 1 + abilityLevel(economy, "poisonSpread"),
-    splitCount: 1 + abilityLevel(economy, "splitCount"),
-    pierceDepth: 1 + abilityLevel(economy, "pierceDepth"),
+    speedMul: statMul(economy, "speed") * augmentMul(augmentState, "speed"),
+    dmgMul: statMul(economy, "damage") * augmentMul(augmentState, "damage"),
+    smashRadius: 1 + abilityLevel(economy, "smashRadius") + augmentBonus(augmentState, "smashRadius"),
+    poisonSpread: 1 + abilityLevel(economy, "poisonSpread") + augmentBonus(augmentState, "poisonSpread"),
+    splitCount: 1 + abilityLevel(economy, "splitCount") + augmentBonus(augmentState, "splitCount"),
+    pierceDepth: 1 + abilityLevel(economy, "pierceDepth") + augmentBonus(augmentState, "pierceDepth"),
     darkSpeedMul: statMul(economy, "darkSpeed"),
   };
 }
@@ -344,8 +382,8 @@ function doSave(): void {
     ballsOwned: economy.ballsOwned,
     stats,
     exploredRuns: encodeExplored(world.explored),
-    augments: [],
-    augmentRngState: 0,
+    augments: augmentState.picked,
+    augmentRngState: augmentState.rngState,
   };
   saveGame(data);
 }
@@ -360,6 +398,14 @@ ui.onNewRun = () => {
   savingDisabled = true;
   clearSave();
   location.reload();
+};
+
+ui.onPickAugment = (id) => {
+  pickAugment(augmentState, id);
+  augmentOfferOpen = false;
+  paused = false;
+  pendingAugmentOffers--;
+  showNextAugmentOffer();
 };
 
 function showErrorOverlay(): void {
@@ -403,21 +449,25 @@ function frame(now: number): void {
     let dt = (now - last) / 1000;
     last = now;
     dt = Math.min(dt, 0.25);
-    acc += dt;
 
-    const abilityStats = buildAbilityStats();
-    let steps = 0;
-    while (acc >= SIM_DT && steps < MAX_SIM_STEPS) {
-      physics.step(SIM_DT, abilityStats, onMined);
-      acc -= SIM_DT;
-      steps++;
-    }
-    if (steps >= MAX_SIM_STEPS) {
-      acc = Math.min(acc, SIM_DT * MAX_SIM_STEPS);
+    if (!paused) {
+      acc += dt;
+
+      const abilityStats = buildAbilityStats();
+      let steps = 0;
+      while (acc >= SIM_DT && steps < MAX_SIM_STEPS) {
+        physics.step(SIM_DT, abilityStats, onMined, onMoltenHit);
+        acc -= SIM_DT;
+        steps++;
+      }
+      if (steps >= MAX_SIM_STEPS) {
+        acc = Math.min(acc, SIM_DT * MAX_SIM_STEPS);
+      }
+
+      updateCameraPan(dt);
+      updateRadar(dt);
     }
 
-    updateCameraPan(dt);
-    updateRadar(dt);
     renderer.showTreasurePulse = abilityLevel(economy, "treasureHunter") > 0;
     ui.treasurePings = abilityLevel(economy, "treasureHunter") > 0;
     renderer.draw(cam, physics.balls, dt);
