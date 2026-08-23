@@ -21,6 +21,18 @@ describe("physics", () => {
     expect(p.balls[0].x).toBeCloseTo(100 + 90 * 0.5, 0);
     expect(p.balls[0].y).toBeCloseTo(100, 0);
   });
+  it("uses launch velocity magnitude for travel distance", () => {
+    const w = emptyWorld();
+    const slow = new Physics(w);
+    const fast = new Physics(w);
+    slow.spawn("white", 100, 100, 0, 0.5);
+    fast.spawn("white", 100, 100, 0, 1.5);
+
+    slow.step(0.2, STATS, () => {});
+    fast.step(0.2, STATS, () => {});
+
+    expect(fast.balls[0].x - 100).toBeGreaterThan(slow.balls[0].x - 100);
+  });
   it("reflects off vertical wall and damages it", () => {
     const w = emptyWorld();
     for (let y = 0; y < WORLD_H; y++) w.cells[w.idx(110, y)] = CELL.HARD;
@@ -40,6 +52,16 @@ describe("physics", () => {
     expect(p.balls[0].vx).toBeLessThan(0);
     p.step(0.2, STATS, () => {});
     expect(p.balls[0].x).toBeLessThan(xAfterHit);
+  });
+  it("continues through the reflected part of the same frame", () => {
+    const w = emptyWorld();
+    for (let y = 0; y < WORLD_H; y++) w.cells[w.idx(110, y)] = CELL.HARD;
+    const p = new Physics(w);
+    p.spawn("white", 100, 100, 0);
+
+    p.step(0.2, STATS, () => {});
+
+    expect(p.balls[0].x).toBeLessThan(104);
   });
   it("mines soft pixel and reports via callback", () => {
     const w = emptyWorld();

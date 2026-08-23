@@ -110,8 +110,8 @@ export class Physics {
     onImpact?: (context: ImpactContext) => void
   ): void {
     const speedScale = ball.type === "purple" ? 0.6 : 1;
-    const totalDist = BASE_SPEED * stats.speedMul * dt * speedScale;
     const speed = Math.hypot(ball.vx, ball.vy);
+    const totalDist = speed * stats.speedMul * dt * speedScale;
     if (speed === 0 || !Number.isFinite(totalDist)) return;
 
     let remaining = totalDist;
@@ -147,6 +147,9 @@ export class Physics {
       }
 
       collisions++;
+      // The sweep may hit before the end of this substep. Preserve the
+      // remaining distance so the reflected ball continues immediately.
+      remaining += sub * (1 - hit.t);
       const hitX = hit.x;
       const hitY = hit.y;
       const contactX = ball.x + (nx - ball.x) * hit.t;
