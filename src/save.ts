@@ -13,6 +13,8 @@ export interface SaveData {
   exploredRuns: number[];
   augments: string[];
   augmentRngState: number;
+  upgradePointsSinceAugment: number;
+  pendingAugmentOffers: number;
 }
 
 interface SaveDataV2 {
@@ -79,7 +81,7 @@ export function migrateV1(old: { seed: number; changes: number[]; [k: string]: u
 }
 
 export function migrateV2to3(old: SaveDataV2): SaveData {
-  return { ...old, version: 3, augments: [], augmentRngState: old.seed + 8 };
+  return { ...old, version: 3, augments: [], augmentRngState: old.seed + 8, upgradePointsSinceAugment: 0, pendingAugmentOffers: 0 };
 }
 
 export function saveGame(data: SaveData): void {
@@ -161,6 +163,12 @@ export function normalizeSave(data: SaveData): SaveData {
   const augmentRngStateValid = typeof data.augmentRngState === "number" && Number.isFinite(data.augmentRngState);
   if (!augmentRngStateValid) corrected.push("augmentRngState");
 
+  const upgradePointsSinceAugmentValid = typeof data.upgradePointsSinceAugment === "number" && Number.isFinite(data.upgradePointsSinceAugment);
+  if (!upgradePointsSinceAugmentValid) corrected.push("upgradePointsSinceAugment");
+
+  const pendingAugmentOffersValid = typeof data.pendingAugmentOffers === "number" && Number.isFinite(data.pendingAugmentOffers);
+  if (!pendingAugmentOffersValid) corrected.push("pendingAugmentOffers");
+
   const seedValid = typeof data.seed === "number" && Number.isFinite(data.seed);
   if (!seedValid) corrected.push("seed");
 
@@ -202,5 +210,7 @@ export function normalizeSave(data: SaveData): SaveData {
     exploredRuns,
     augments,
     augmentRngState: augmentRngStateValid ? data.augmentRngState : (seedValid ? data.seed : 0) + 8,
+    upgradePointsSinceAugment: upgradePointsSinceAugmentValid ? data.upgradePointsSinceAugment : 0,
+    pendingAugmentOffers: pendingAugmentOffersValid ? data.pendingAugmentOffers : 0,
   };
 }

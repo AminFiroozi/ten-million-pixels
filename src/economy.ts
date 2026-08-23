@@ -88,7 +88,7 @@ export const NODE_LAYOUT: Record<string, { col: number; row: number; branch: "ba
   reveal_radius_2: { col: 8, row: 1, branch: "discovery" },
   radar: { col: 8, row: 2, branch: "discovery" },
   treasure_hunter: { col: 8, row: 3, branch: "discovery" },
-  dark_speed: { col: 9, row: 1, branch: "survival" },
+  dark_speed: { col: 9, row: 0, branch: "survival" },
 };
 
 export function newEconomy(): EconomyState {

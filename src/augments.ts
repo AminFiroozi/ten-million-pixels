@@ -1,10 +1,23 @@
 import { mulberry32 } from "./rng";
 
+export type AugmentStat =
+  | "speed"
+  | "damage"
+  | "smashRadius"
+  | "poisonSpread"
+  | "splitCount"
+  | "pierceDepth"
+  | "pixelValueMul"
+  | "treasureMul"
+  | "bossMul"
+  | "revealRadius"
+  | "launchWave";
+
 export interface AugmentDef {
   id: string;
   name: string;
   desc: string;
-  stat: string;
+  stat: AugmentStat;
   amount: number;
 }
 
@@ -20,7 +33,7 @@ export const AUGMENT_POOL: AugmentDef[] = [
   { id: "aug_slayer", name: "Boss Slayer", desc: "+30% boss payout", stat: "bossMul", amount: 0.3 },
   { id: "aug_eyes", name: "Wide Eyes", desc: "Reveal radius +3", stat: "revealRadius", amount: 3 },
   { id: "aug_overcharge", name: "Overcharge", desc: "Launch wave +10 balls", stat: "launchWave", amount: 10 },
-  { id: "aug_swift", name: "Swift Draw", desc: "+15% launch speed", stat: "launchSpeed", amount: 0.15 },
+  { id: "aug_swift", name: "Swift Draw", desc: "+15% ball speed", stat: "speed", amount: 0.15 },
 ];
 
 export interface AugmentState {

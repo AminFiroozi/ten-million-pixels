@@ -2,8 +2,6 @@ import { valueNoise2D } from "./rng";
 
 export type Biome = "verdant" | "crystal" | "molten" | "ruins";
 
-export const MOLTEN_DESTROY_CHANCE = 0.15;
-
 export function biomeAt(x: number, y: number, seed: number): Biome {
   const n = valueNoise2D(x, y, seed + 5, 320);
   if (n < 0.45) return "verdant";

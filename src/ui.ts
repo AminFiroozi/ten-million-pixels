@@ -161,6 +161,7 @@ export class UI {
 
   private winOverlay: HTMLElement;
   private augmentOverlay: HTMLElement;
+  private augmentShownAt: number;
 
   private popups: HTMLElement[];
 
@@ -185,6 +186,7 @@ export class UI {
     this.radarEl = null;
     this.radarArrow = null;
     this.radarPulseTimer = null;
+    this.augmentShownAt = 0;
 
     const hud = document.createElement("div");
     hud.className = "hud-topleft";
@@ -639,6 +641,7 @@ export class UI {
   }
 
   showAugmentChoice(defs: AugmentDef[]): void {
+    this.augmentShownAt = performance.now();
     this.augmentOverlay.textContent = "";
 
     const panel = document.createElement("div");
@@ -667,6 +670,7 @@ export class UI {
       card.appendChild(desc);
 
       card.addEventListener("click", () => {
+        if (performance.now() - this.augmentShownAt < 250) return;
         this.augmentOverlay.classList.add("hidden");
         this.onPickAugment?.(def.id);
       });

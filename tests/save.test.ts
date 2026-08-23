@@ -180,4 +180,28 @@ describe("save v3", () => {
     expect(normalized.augments).toEqual(["aug_momentum", "aug_blast"]);
     expect(normalized.augmentRngState).toBe(999);
   });
+
+  it("normalizeSave coerces a malformed upgradePointsSinceAugment/pendingAugmentOffers to 0", () => {
+    const raw = {
+      version: 3, seed: 5, changes: [], currency: 0, upgradePoints: 0, upgrades: {},
+      ballsOwned: { white: 1 }, stats: { pixelsMined: 0, startedAt: 1, won: false },
+      exploredRuns: [], augments: [], augmentRngState: 13,
+      upgradePointsSinceAugment: "nope", pendingAugmentOffers: NaN,
+    } as unknown as SaveData;
+    const normalized = normalizeSave(raw);
+    expect(normalized.upgradePointsSinceAugment).toBe(0);
+    expect(normalized.pendingAugmentOffers).toBe(0);
+  });
+
+  it("normalizeSave preserves valid upgradePointsSinceAugment/pendingAugmentOffers", () => {
+    const raw = {
+      version: 3, seed: 5, changes: [], currency: 0, upgradePoints: 0, upgrades: {},
+      ballsOwned: { white: 1 }, stats: { pixelsMined: 0, startedAt: 1, won: false },
+      exploredRuns: [], augments: [], augmentRngState: 13,
+      upgradePointsSinceAugment: 17, pendingAugmentOffers: 2,
+    } as unknown as SaveData;
+    const normalized = normalizeSave(raw);
+    expect(normalized.upgradePointsSinceAugment).toBe(17);
+    expect(normalized.pendingAugmentOffers).toBe(2);
+  });
 });

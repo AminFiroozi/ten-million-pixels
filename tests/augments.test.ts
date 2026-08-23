@@ -1,10 +1,30 @@
 import { describe, it, expect } from "vitest";
 import { AUGMENT_POOL, newAugmentState, augmentMul, augmentBonus, pickAugment, rollChoices } from "../src/augments";
 
+const KNOWN_STATS = [
+  "speed",
+  "damage",
+  "smashRadius",
+  "poisonSpread",
+  "splitCount",
+  "pierceDepth",
+  "pixelValueMul",
+  "treasureMul",
+  "bossMul",
+  "revealRadius",
+  "launchWave",
+];
+
 describe("augments", () => {
   it("pool has 12 distinct entries", () => {
     expect(AUGMENT_POOL.length).toBe(12);
     expect(new Set(AUGMENT_POOL.map(d => d.id)).size).toBe(12);
+  });
+
+  it("every AUGMENT_POOL entry targets a stat that is actually consumed somewhere", () => {
+    for (const def of AUGMENT_POOL) {
+      expect(KNOWN_STATS).toContain(def.stat);
+    }
   });
 
   it("augmentMul and augmentBonus reflect picked defs", () => {

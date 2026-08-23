@@ -25,6 +25,8 @@ let world: World;
 let economy: EconomyState;
 let stats: { pixelsMined: number; startedAt: number; won: boolean };
 let augmentState: AugmentState;
+let upgradePointsSinceAugment = 0;
+let pendingAugmentOffers = 0;
 
 if (save) {
   world = World.generate(save.seed);
@@ -49,6 +51,8 @@ if (save) {
   };
   stats = { ...save.stats };
   augmentState = { picked: save.augments, rngState: save.augmentRngState };
+  upgradePointsSinceAugment = save.upgradePointsSinceAugment;
+  pendingAugmentOffers = save.pendingAugmentOffers;
 } else {
   world = World.generate(Date.now() >>> 0);
   economy = newEconomy();
@@ -273,8 +277,6 @@ function updateCameraPan(dt: number): void {
 }
 
 let uiDirty = false;
-let upgradePointsSinceAugment = 0;
-let pendingAugmentOffers = 0;
 let augmentOfferOpen = false;
 let paused = false;
 
@@ -297,7 +299,13 @@ function showNextAugmentOffer(): void {
   }
   augmentOfferOpen = true;
   paused = true;
-  ui.showAugmentChoice(defs);
+  try {
+    ui.showAugmentChoice(defs);
+  } catch (err) {
+    console.error(err);
+    augmentOfferOpen = false;
+    paused = false;
+  }
 }
 
 function onMined(cell: number, x: number, y: number): void {
@@ -352,7 +360,12 @@ function onMined(cell: number, x: number, y: number): void {
   showNextAugmentOffer();
 }
 
+let moltenBurstsThisFrame = 0;
+const MOLTEN_BURST_CAP = 24;
+
 function onMoltenHit(x: number, y: number): void {
+  if (moltenBurstsThisFrame >= MOLTEN_BURST_CAP) return;
+  moltenBurstsThisFrame++;
   renderer.addBurst(x + 0.5, y + 0.5, "#f63");
 }
 
@@ -384,6 +397,8 @@ function doSave(): void {
     exploredRuns: encodeExplored(world.explored),
     augments: augmentState.picked,
     augmentRngState: augmentState.rngState,
+    upgradePointsSinceAugment: upgradePointsSinceAugment,
+    pendingAugmentOffers: pendingAugmentOffers,
   };
   saveGame(data);
 }
@@ -405,7 +420,7 @@ ui.onPickAugment = (id) => {
   augmentOfferOpen = false;
   paused = false;
   pendingAugmentOffers--;
-  showNextAugmentOffer();
+  requestAnimationFrame(showNextAugmentOffer);
 };
 
 function showErrorOverlay(): void {
@@ -449,6 +464,8 @@ function frame(now: number): void {
     let dt = (now - last) / 1000;
     last = now;
     dt = Math.min(dt, 0.25);
+
+    moltenBurstsThisFrame = 0;
 
     if (!paused) {
       acc += dt;
