@@ -41,6 +41,16 @@ describe("physics", () => {
     expect(mined).toContain(CELL.SOFT);
     expect(w.get(110, 100)).toBe(CELL.EMPTY);
   });
+  it("catches a fast diagonal wall crossing at a grid corner", () => {
+    const w = emptyWorld();
+    w.cells[w.idx(101, 100)] = CELL.SOFT;
+    const p = new Physics(w);
+    p.spawn("white", 100.5, 100.5, Math.PI / 4);
+    const mined: number[] = [];
+    p.step(0.03, STATS, cell => mined.push(cell));
+    expect(mined).toContain(CELL.SOFT);
+    expect(p.balls[0].vx).toBeLessThan(0);
+  });
   it("reports direct impact context while preserving the mined callback", () => {
     const w = emptyWorld();
     w.cells[w.idx(110, 100)] = CELL.SOFT;

@@ -2,6 +2,7 @@ import { World, WORLD_W, CELL } from "./world";
 import { BallType } from "./economy";
 import { mulberry32 } from "./rng";
 import { biomeAt } from "./biomes";
+import { sweepGrid } from "./grid-collision";
 
 export interface Ball {
   x: number;
@@ -36,6 +37,8 @@ export interface ImpactContext {
 
 const BASE_SPEED = 90;
 const MAX_SUBSTEP = 0.9;
+const MAX_COLLISIONS_PER_STEP = 16;
+const COLLISION_EPSILON = 1e-4;
 const POISON_TICK = 0.5;
 const MAX_BALLS = 20000;
 const MOLTEN_BOUNCE_MUL = 1.6;
@@ -111,65 +114,95 @@ export class Physics {
     const speed = Math.hypot(ball.vx, ball.vy);
     if (speed === 0 || !Number.isFinite(totalDist)) return;
 
-    let dirX = ball.vx / speed;
-    let dirY = ball.vy / speed;
-
     let remaining = totalDist;
-    while (remaining > 0 && !ball.dead) {
+    let collisions = 0;
+    while (remaining > 0 && !ball.dead && collisions < MAX_COLLISIONS_PER_STEP) {
+      const currentSpeed = Math.hypot(ball.vx, ball.vy);
+      if (currentSpeed === 0 || !Number.isFinite(currentSpeed)) break;
+      const dirX = ball.vx / currentSpeed;
+      const dirY = ball.vy / currentSpeed;
       const darkMul = this.world.isExplored(Math.floor(ball.x), Math.floor(ball.y)) ? 1 : stats.darkSpeedMul;
-      const sub = Math.min(MAX_SUBSTEP / darkMul, remaining);
+      const safeDarkMul = Number.isFinite(darkMul) && darkMul > 0 ? darkMul : 1;
+      const sub = Math.min(MAX_SUBSTEP / safeDarkMul, remaining);
       remaining -= sub;
 
-      const moveDist = sub * darkMul;
+      const moveDist = sub * safeDarkMul;
 
       const nx = ball.x + dirX * moveDist;
       const ny = ball.y + dirY * moveDist;
 
-      if (this.world.isSolid(Math.floor(nx), Math.floor(ny))) {
-        const passThrough = this.resolveCollision(ball, nx, ny, stats, onMined, onMoltenHit, onImpact);
-        if (!passThrough) break;
-
+      const hit = sweepGrid(
+        ball.x,
+        ball.y,
+        nx,
+        ny,
+        (x, y) => this.world.isSolid(x, y),
+        WORLD_W,
+        this.world.cells.length / WORLD_W,
+      );
+      if (!hit) {
         ball.x = nx;
         ball.y = ny;
-
-        const newSpeed = Math.hypot(ball.vx, ball.vy);
-        if (newSpeed === 0) break;
-        dirX = ball.vx / newSpeed;
-        dirY = ball.vy / newSpeed;
         continue;
       }
 
-      ball.x = nx;
-      ball.y = ny;
+      collisions++;
+      const hitX = hit.x;
+      const hitY = hit.y;
+      const contactX = ball.x + (nx - ball.x) * hit.t;
+      const contactY = ball.y + (ny - ball.y) * hit.t;
+      const normalX = hit.normalX || -dirX;
+      const normalY = hit.normalY || -dirY;
+      ball.x = contactX + normalX * COLLISION_EPSILON;
+      ball.y = contactY + normalY * COLLISION_EPSILON;
+
+      const passThrough = this.resolveCollision(
+        ball,
+        hitX,
+        hitY,
+        contactX,
+        contactY,
+        normalX,
+        normalY,
+        stats,
+        onMined,
+        onMoltenHit,
+        onImpact,
+      );
+      if (!passThrough) {
+        const reflectedSpeed = Math.hypot(ball.vx, ball.vy);
+        if (reflectedSpeed === 0 || !Number.isFinite(reflectedSpeed)) break;
+      }
     }
   }
 
   private resolveCollision(
     ball: Ball,
-    nx: number,
-    ny: number,
+    hitX: number,
+    hitY: number,
+    impactX: number,
+    impactY: number,
+    normalX: number,
+    normalY: number,
     stats: AbilityStats,
     onMined: MineCallback,
     onMoltenHit?: (x: number, y: number) => void,
     onImpact?: (context: ImpactContext) => void
   ): boolean {
-    const hitX = Math.floor(nx);
-    const hitY = Math.floor(ny);
-    const solidX = this.world.isSolid(Math.floor(nx), Math.floor(ball.y));
-    const solidY = this.world.isSolid(Math.floor(ball.x), Math.floor(ny));
-    const isMolten = biomeAt(hitX, hitY, this.world.seed) === "molten";
+    const isSolidHit = this.world.isSolid(hitX, hitY);
+    const isMolten = isSolidHit && biomeAt(hitX, hitY, this.world.seed) === "molten";
     if (isMolten) onMoltenHit?.(hitX, hitY);
 
     const reflect = (): void => {
-      if (solidX) ball.vx = -ball.vx;
-      if (solidY) ball.vy = -ball.vy;
-      if (!solidX && !solidY) {
+      if (normalX !== 0) ball.vx = -ball.vx;
+      if (normalY !== 0) ball.vy = -ball.vy;
+      if (normalX === 0 && normalY === 0) {
         ball.vx = -ball.vx;
         ball.vy = -ball.vy;
       }
       if (isMolten) {
-        if (solidX || (!solidX && !solidY)) ball.vx *= MOLTEN_BOUNCE_MUL;
-        if (solidY || (!solidX && !solidY)) ball.vy *= MOLTEN_BOUNCE_MUL;
+        if (normalX !== 0 || (normalX === 0 && normalY === 0)) ball.vx *= MOLTEN_BOUNCE_MUL;
+        if (normalY !== 0 || (normalX === 0 && normalY === 0)) ball.vy *= MOLTEN_BOUNCE_MUL;
         const magnitude = Math.hypot(ball.vx, ball.vy);
         if (magnitude > 0) {
           ball.vx = (ball.vx / magnitude) * BASE_SPEED;
@@ -205,7 +238,7 @@ export class Physics {
     }
 
     if (ball.type === "orange") {
-      this.spawnShards(nx, ny, stats.splitCount);
+      this.spawnShards(impactX, impactY, stats.splitCount);
     }
 
     if (ball.type === "purple" && destroyed) {

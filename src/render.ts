@@ -23,6 +23,28 @@ export const BALL_COLORS: Record<BallType, string> = {
   purple: "#b4f",
 };
 
+export interface AimPoint {
+  x: number;
+  y: number;
+}
+
+export interface AimPull {
+  x: number;
+  y: number;
+}
+
+export const MAX_AIM_PREVIEW_POINTS = 32;
+
+export function capAimPreviewPoints(points: readonly AimPoint[]): AimPoint[] {
+  const finitePoints: AimPoint[] = [];
+  for (const point of points) {
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) continue;
+    finitePoints.push({ x: point.x, y: point.y });
+    if (finitePoints.length === MAX_AIM_PREVIEW_POINTS) break;
+  }
+  return finitePoints;
+}
+
 const BG_COLOR = "#050a06";
 const FOG_COLOR = "#070b08";
 const SPRITE_SIZE = 16;
@@ -44,6 +66,12 @@ interface PulseCell {
   x: number;
   y: number;
   cell: number;
+}
+
+interface AimPreview {
+  points: AimPoint[];
+  pull: AimPull;
+  ballType: BallType;
 }
 
 export function worldToScreen(cam: Camera, w: number, h: number, x: number, y: number): [number, number] {
@@ -262,6 +290,7 @@ export class Renderer {
   private time: number;
   private ballSprites: Map<BallType, CanvasLike>;
   private readonly effects: VisualEffectsState;
+  private aimPreview: AimPreview | null;
 
   constructor(world: World, canvas: HTMLCanvasElement) {
     this.world = world;
@@ -278,6 +307,7 @@ export class Renderer {
     this.time = 0;
     this.ballSprites = new Map();
     this.effects = new VisualEffectsState();
+    this.aimPreview = null;
     for (const type of Object.keys(BALL_COLORS) as BallType[]) {
       this.ballSprites.set(type, makeBallSprite(BALL_COLORS[type]));
     }
@@ -327,6 +357,21 @@ export class Renderer {
     this.effects.addImpact({ x, y, color, strength, cascadeDepth });
     const direction = ((x * 17 + y * 31) % 2 === 0 ? 1 : -1) * Math.min(0.8, strength * 0.12);
     this.effects.addImpulse(direction, -direction * 0.6);
+  }
+
+  setAimPreview(points: readonly AimPoint[], pull: AimPull, ballType: BallType): void {
+    this.aimPreview = {
+      points: capAimPreviewPoints(points),
+      pull: {
+        x: Number.isFinite(pull.x) ? pull.x : 0,
+        y: Number.isFinite(pull.y) ? pull.y : 0,
+      },
+      ballType,
+    };
+  }
+
+  clearAimPreview(): void {
+    this.aimPreview = null;
   }
 
   private getOrCreateChunk(cx: number, cy: number): Chunk {
@@ -476,6 +521,59 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
+  private drawAimPreview(cam: Camera, w: number, h: number): void {
+    const preview = this.aimPreview;
+    if (!preview || preview.points.length === 0) return;
+
+    const ctx = this.ctx;
+    const anchor = preview.points[0];
+    const [anchorX, anchorY] = worldToScreen(cam, w, h, anchor.x, anchor.y);
+    const [heldX, heldY] = worldToScreen(cam, w, h, anchor.x + preview.pull.x, anchor.y + preview.pull.y);
+    const color = BALL_COLORS[preview.ballType];
+
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.globalAlpha = 0.72;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1, cam.zoom * 0.5);
+    ctx.setLineDash([Math.max(2, cam.zoom * 1.5), Math.max(3, cam.zoom * 2.5)]);
+    ctx.beginPath();
+    for (let i = 1; i < preview.points.length; i++) {
+      const [sx, sy] = worldToScreen(cam, w, h, preview.points[i].x, preview.points[i].y);
+      if (i === 1) ctx.moveTo(sx, sy);
+      else ctx.lineTo(sx, sy);
+    }
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = Math.max(1, cam.zoom * 0.65);
+    ctx.beginPath();
+    ctx.moveTo(anchorX, anchorY);
+    ctx.lineTo(heldX, heldY);
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = BG_COLOR;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1, cam.zoom * 0.45);
+    ctx.beginPath();
+    ctx.arc(anchorX, anchorY, Math.max(4, cam.zoom * 2.2), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(heldX, heldY, Math.max(5, cam.zoom * 2.8), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(heldX, heldY, Math.max(2, cam.zoom * 1.2), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   private drawBalls(cam: Camera, w: number, h: number, balls: Ball[]): void {
     const ctx = this.ctx;
     const half = SPRITE_SIZE / 2;
@@ -549,5 +647,6 @@ export class Renderer {
     this.updateParticles(dt);
     this.drawParticles(visualCam, w, h);
     this.drawPulseOverlay(visualCam, w, h, cx0, cy0, cx1, cy1);
+    this.drawAimPreview(visualCam, w, h);
   }
 }

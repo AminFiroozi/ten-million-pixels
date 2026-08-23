@@ -1,6 +1,7 @@
-import { World, CELL, WORLD_W } from "./world";
+import { World, CELL, WORLD_W, WORLD_H } from "./world";
 import { SaveData, diffWorld, applyDiff, saveGame, loadGame, clearSave, normalizeSave, encodeExplored, decodeExplored } from "./save";
 import { EconomyState, BallType, BALL_ORDER, newEconomy, pixelValue, statMul, abilityLevel } from "./economy";
+import { clampPull, launchSpeedMul, nextBallType, shouldLaunch, type Point } from "./slingshot";
 import { biomeAt, biomeValueMul } from "./biomes";
 import { Physics, AbilityStats } from "./physics";
 import { Renderer, Camera, screenToWorld, worldToScreen, cellColor } from "./render";
@@ -8,6 +9,7 @@ import { UI } from "./ui";
 import { AugmentState, newAugmentState, augmentMul, augmentBonus, pickAugment, rollChoices } from "./augments";
 import { resolveFracture, FRACTURE_MAX_DEPTH } from "./erosion";
 import { advanceCombo, type ComboState } from "./combo";
+import { sweepGrid } from "./grid-collision";
 
 const SIM_DT = 1 / 120;
 const MAX_SIM_STEPS = 5;
@@ -19,6 +21,15 @@ const RADAR_INTERVAL_S = 2;
 const PINCH_ZOOM_MIN = 0.5;
 const PINCH_ZOOM_MAX = 24;
 const TOUCH_DRAG_THRESHOLD = 12;
+const LAUNCH_ZONE_RADIUS = 32;
+const MAX_PULL = 120;
+const MIN_PULL = 8;
+const MIN_LAUNCH_SPEED = 0.55;
+const MAX_LAUNCH_SPEED = 1.55;
+const PREVIEW_DOTS = 32;
+const PREVIEW_DT = 0.08;
+const PREVIEW_BASE_SPEED = 90;
+const PREVIEW_EPSILON = 1e-4;
 
 const rawSave = loadGame();
 const save = rawSave ? normalizeSave(rawSave) : null;
@@ -65,6 +76,7 @@ if (save) {
 }
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
+canvas.style.touchAction = "none";
 
 function resize(): void {
   canvas.width = window.innerWidth;
@@ -94,33 +106,219 @@ window.addEventListener("keydown", e => keys.add(e.key.toLowerCase()));
 window.addEventListener("keyup", e => keys.delete(e.key.toLowerCase()));
 
 let dragging = false;
+let panPointerId: number | null = null;
 let lastDragX = 0;
 let lastDragY = 0;
 
+interface AimState {
+  active: boolean;
+  pointerId: number | null;
+  pull: Point;
+  ballType: BallType | null;
+}
+
+interface AimPreviewRenderer {
+  setAimPreview?: (points: Point[], pull: Point, ballType: BallType) => void;
+  clearAimPreview?: () => void;
+}
+
+const aimRenderer = renderer as Renderer & AimPreviewRenderer;
+const aimState: AimState = { active: false, pointerId: null, pull: { x: 0, y: 0 }, ballType: null };
+const activePointers = new Map<number, { x: number; y: number; type: string }>();
+let touchPan: { pointerId: number; x: number; y: number } | null = null;
+let pinch: PinchState | null = null;
+
 canvas.addEventListener("contextmenu", e => e.preventDefault());
 
-canvas.addEventListener("mousedown", e => {
+function clearAim(): void {
+  const pointerId = aimState.pointerId;
+  aimState.active = false;
+  aimState.pointerId = null;
+  aimState.pull = { x: 0, y: 0 };
+  aimState.ballType = null;
+  aimRenderer.clearAimPreview?.();
+  if (pointerId !== null && canvas.hasPointerCapture?.(pointerId)) canvas.releasePointerCapture(pointerId);
+}
+
+function launcherWorldPoint(): Point {
+  return { x: SPAWN_CAVITY_X, y: SPAWN_CAVITY_Y };
+}
+
+function pointerWorldPoint(clientX: number, clientY: number): Point {
+  const [x, y] = screenToWorld(cam, canvas.width, canvas.height, clientX, clientY);
+  return { x, y };
+}
+
+function isInLaunchZone(clientX: number, clientY: number): boolean {
+  const pointer = pointerWorldPoint(clientX, clientY);
+  const anchor = launcherWorldPoint();
+  return Math.hypot(pointer.x - anchor.x, pointer.y - anchor.y) <= LAUNCH_ZONE_RADIUS;
+}
+
+function updateAim(clientX: number, clientY: number): void {
+  if (!aimState.active) return;
+  const pull = clampPull(launcherWorldPoint(), pointerWorldPoint(clientX, clientY), MAX_PULL);
+  aimState.pull = pull;
+  if (aimState.ballType) aimRenderer.setAimPreview?.(buildAimPreview(pull, aimState.ballType), pull, aimState.ballType);
+}
+
+function buildAimPreview(pull: Point, ballType: BallType): Point[] {
+  const anchor = launcherWorldPoint();
+  const pullLength = Math.hypot(pull.x, pull.y);
+  if (pullLength === 0) return [anchor];
+  const angle = Math.atan2(-pull.y, -pull.x);
+  const speedMul = statMul(economy, "launchSpeed") * augmentMul(augmentState, "launchSpeed") *
+    launchSpeedMul(pullLength, MAX_PULL, MIN_LAUNCH_SPEED, MAX_LAUNCH_SPEED);
+  const abilitySpeed = buildAbilityStats().speedMul * (ballType === "purple" ? 0.6 : 1);
+  let x = anchor.x;
+  let y = anchor.y;
+  let vx = Math.cos(angle) * PREVIEW_BASE_SPEED * speedMul;
+  let vy = Math.sin(angle) * PREVIEW_BASE_SPEED * speedMul;
+  const points: Point[] = [{ x, y }];
+  for (let i = 0; i < PREVIEW_DOTS - 1; i++) {
+    const nextX = x + vx * abilitySpeed * PREVIEW_DT;
+    const nextY = y + vy * abilitySpeed * PREVIEW_DT;
+    const hit = sweepGrid(x, y, nextX, nextY, (cellX, cellY) => world.isSolid(cellX, cellY), WORLD_W, WORLD_H);
+    if (!hit) {
+      x = nextX;
+      y = nextY;
+    } else {
+      x += (nextX - x) * hit.t + hit.normalX * PREVIEW_EPSILON;
+      y += (nextY - y) * hit.t + hit.normalY * PREVIEW_EPSILON;
+      if (hit.normalX !== 0) vx = -vx;
+      if (hit.normalY !== 0) vy = -vy;
+    }
+    points.push({ x, y });
+  }
+  return points;
+}
+
+function beginAim(pointerId: number, clientX: number, clientY: number): boolean {
+  if (paused || !isInLaunchZone(clientX, clientY)) return false;
+  const ballType = nextBallType(economy.ballsOwned, spawnedCount);
+  if (!ballType) return false;
+  aimState.active = true;
+  aimState.pointerId = pointerId;
+  aimState.pull = { x: 0, y: 0 };
+  aimState.ballType = ballType;
+  aimRenderer.setAimPreview?.(buildAimPreview(aimState.pull, ballType), aimState.pull, ballType);
+  updateAim(clientX, clientY);
+  return true;
+}
+
+function releaseAim(clientX: number, clientY: number): void {
+  if (!aimState.active) return;
+  updateAim(clientX, clientY);
+  const pull = aimState.pull;
+  const ballType = aimState.ballType;
+  clearAim();
+  if (!ballType || !shouldLaunch(Math.hypot(pull.x, pull.y), MIN_PULL) || paused) return;
+  const angle = Math.atan2(-pull.y, -pull.x);
+  const baseSpeedMul = statMul(economy, "launchSpeed") * augmentMul(augmentState, "launchSpeed");
+  const pullSpeedMul = launchSpeedMul(Math.hypot(pull.x, pull.y), MAX_PULL, MIN_LAUNCH_SPEED, MAX_LAUNCH_SPEED);
+  physics.spawn(ballType, SPAWN_CAVITY_X, SPAWN_CAVITY_Y, angle, baseSpeedMul * pullSpeedMul);
+  spawnedCount[ballType]++;
+}
+
+function endPointerCapture(pointerId: number): void {
+  if (canvas.hasPointerCapture?.(pointerId)) canvas.releasePointerCapture(pointerId);
+}
+
+canvas.addEventListener("pointerdown", e => {
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
   if (e.button === 2) {
     dragging = true;
+    panPointerId = e.pointerId;
     lastDragX = e.clientX;
     lastDragY = e.clientY;
-  } else if (e.button === 0) {
-    spawnWaveAt(e.clientX, e.clientY);
+    canvas.setPointerCapture(e.pointerId);
+    return;
   }
-});
-
-window.addEventListener("mousemove", e => {
-  if (!dragging) return;
-  const dx = e.clientX - lastDragX;
-  const dy = e.clientY - lastDragY;
-  lastDragX = e.clientX;
-  lastDragY = e.clientY;
-  cam.x -= dx / cam.zoom;
-  cam.y -= dy / cam.zoom;
+  if (e.button !== 0) return;
+  if (e.pointerType === "touch") {
+    if (activePointers.size >= 2) {
+      clearAim();
+      touchPan = null;
+      const touches = Array.from(activePointers.values());
+      const [a, b] = touches;
+      pinch = { dist: Math.hypot(b.x - a.x, b.y - a.y), midX: (a.x + b.x) / 2, midY: (a.y + b.y) / 2 };
+      return;
+    }
+    if (!beginAim(e.pointerId, e.clientX, e.clientY)) touchPan = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+  } else {
+    beginAim(e.pointerId, e.clientX, e.clientY);
+  }
+  if (aimState.active) canvas.setPointerCapture(e.pointerId);
 });
 
 window.addEventListener("mouseup", e => {
-  if (e.button === 2) dragging = false;
+  if (e.button === 2) {
+    dragging = false;
+    panPointerId = null;
+  }
+});
+
+canvas.addEventListener("pointermove", e => {
+  const previous = activePointers.get(e.pointerId);
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+  if (dragging && panPointerId === e.pointerId) {
+    const dx = e.clientX - lastDragX;
+    const dy = e.clientY - lastDragY;
+    lastDragX = e.clientX;
+    lastDragY = e.clientY;
+    cam.x -= dx / cam.zoom;
+    cam.y -= dy / cam.zoom;
+    return;
+  }
+  if (aimState.active && aimState.pointerId === e.pointerId) {
+    updateAim(e.clientX, e.clientY);
+    return;
+  }
+  if (e.pointerType !== "touch") return;
+  if (activePointers.size >= 2) {
+    const touches = Array.from(activePointers.values());
+    const [a, b] = touches;
+    const dist = Math.hypot(b.x - a.x, b.y - a.y);
+    const midX = (a.x + b.x) / 2;
+    const midY = (a.y + b.y) / 2;
+    if (pinch && pinch.dist > 0) applyPinchZoom(midX, midY, dist / pinch.dist);
+    pinch = { dist, midX, midY };
+    return;
+  }
+  if (touchPan?.pointerId === e.pointerId && previous) {
+    const dx = e.clientX - previous.x;
+    const dy = e.clientY - previous.y;
+    if (Math.hypot(dx, dy) > TOUCH_DRAG_THRESHOLD || touchPan.x !== previous.x || touchPan.y !== previous.y) {
+      cam.x -= dx / cam.zoom;
+      cam.y -= dy / cam.zoom;
+    }
+  }
+});
+
+function finishPointer(e: PointerEvent, cancelled: boolean): void {
+  if (e.button === 2 || panPointerId === e.pointerId) {
+    dragging = false;
+    panPointerId = null;
+  }
+  const wasAim = aimState.active && aimState.pointerId === e.pointerId;
+  if (wasAim) {
+    if (cancelled) clearAim();
+    else releaseAim(e.clientX, e.clientY);
+    endPointerCapture(e.pointerId);
+  }
+  activePointers.delete(e.pointerId);
+  if (activePointers.size < 2) pinch = null;
+  if (touchPan?.pointerId === e.pointerId) touchPan = null;
+}
+
+canvas.addEventListener("pointerup", e => finishPointer(e, false));
+canvas.addEventListener("pointercancel", e => finishPointer(e, true));
+canvas.addEventListener("lostpointercapture", e => {
+  if (aimState.pointerId === e.pointerId) clearAim();
+});
+
+window.addEventListener("keydown", e => {
+  if (e.key === "Escape") clearAim();
 });
 
 canvas.addEventListener(
@@ -137,49 +335,10 @@ canvas.addEventListener(
   { passive: false }
 );
 
-function spawnWaveAt(clientX: number, clientY: number): void {
-  if (paused) return;
-  const [tx, ty] = screenToWorld(cam, canvas.width, canvas.height, clientX, clientY);
-  const baseAngle = Math.atan2(ty - SPAWN_CAVITY_Y, tx - SPAWN_CAVITY_X);
-  const launchSpeedMul = statMul(economy, "launchSpeed") * augmentMul(augmentState, "launchSpeed");
-  let remaining = 20 + 10 * abilityLevel(economy, "launchWave") + augmentBonus(augmentState, "launchWave");
-  for (const t of BALL_ORDER) {
-    if (remaining <= 0) break;
-    const owned = economy.ballsOwned[t];
-    const already = spawnedCount[t];
-    const toSpawn = Math.min(remaining, owned - already);
-    if (toSpawn <= 0) continue;
-    for (let i = 0; i < toSpawn; i++) {
-      const angle = baseAngle + (Math.random() * 0.3 - 0.15);
-      physics.spawn(t, SPAWN_CAVITY_X, SPAWN_CAVITY_Y, angle, launchSpeedMul);
-    }
-    spawnedCount[t] = already + toSpawn;
-    remaining -= toSpawn;
-  }
-}
-
-interface TouchTap {
-  x: number;
-  y: number;
-  time: number;
-  dragged: boolean;
-}
-
 interface PinchState {
   dist: number;
   midX: number;
   midY: number;
-}
-
-let touchTap: TouchTap | null = null;
-let pinch: PinchState | null = null;
-
-function touchDistance(a: Touch, b: Touch): number {
-  return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
-}
-
-function touchMidpoint(a: Touch, b: Touch): [number, number] {
-  return [(a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2];
 }
 
 function applyPinchZoom(midX: number, midY: number, factor: number): void {
@@ -189,82 +348,6 @@ function applyPinchZoom(midX: number, midY: number, factor: number): void {
   cam.x = wx - (midX - canvas.width / 2) / newZoom;
   cam.y = wy - (midY - canvas.height / 2) / newZoom;
 }
-
-canvas.addEventListener(
-  "touchstart",
-  e => {
-    e.preventDefault();
-    if (e.touches.length === 1) {
-      const t = e.touches[0];
-      touchTap = { x: t.clientX, y: t.clientY, time: performance.now(), dragged: false };
-      pinch = null;
-    } else if (e.touches.length === 2) {
-      touchTap = null;
-      const [dist, [midX, midY]] = [touchDistance(e.touches[0], e.touches[1]), touchMidpoint(e.touches[0], e.touches[1])];
-      pinch = { dist, midX, midY };
-    }
-  },
-  { passive: false }
-);
-
-canvas.addEventListener(
-  "touchmove",
-  e => {
-    e.preventDefault();
-    if (e.touches.length === 2) {
-      const dist = touchDistance(e.touches[0], e.touches[1]);
-      const [midX, midY] = touchMidpoint(e.touches[0], e.touches[1]);
-      if (pinch) {
-        applyPinchZoom(midX, midY, dist / pinch.dist);
-      }
-      pinch = { dist, midX, midY };
-      touchTap = null;
-      return;
-    }
-    if (e.touches.length === 1 && touchTap) {
-      const t = e.touches[0];
-      const dx = t.clientX - touchTap.x;
-      const dy = t.clientY - touchTap.y;
-      if (touchTap.dragged || Math.hypot(dx, dy) > TOUCH_DRAG_THRESHOLD) {
-        touchTap.dragged = true;
-        cam.x -= dx / cam.zoom;
-        cam.y -= dy / cam.zoom;
-        touchTap.x = t.clientX;
-        touchTap.y = t.clientY;
-      }
-    }
-  },
-  { passive: false }
-);
-
-canvas.addEventListener(
-  "touchend",
-  e => {
-    e.preventDefault();
-    if (touchTap && !touchTap.dragged && e.touches.length === 0) {
-      spawnWaveAt(touchTap.x, touchTap.y);
-    }
-    if (e.touches.length === 0) {
-      touchTap = null;
-      pinch = null;
-    } else if (e.touches.length === 1) {
-      const t = e.touches[0];
-      touchTap = { x: t.clientX, y: t.clientY, time: performance.now(), dragged: false };
-      pinch = null;
-    }
-  },
-  { passive: false }
-);
-
-canvas.addEventListener(
-  "touchcancel",
-  e => {
-    e.preventDefault();
-    touchTap = null;
-    pinch = null;
-  },
-  { passive: false }
-);
 
 function updateCameraPan(dt: number): void {
   const speed = 400 / cam.zoom;
@@ -303,6 +386,7 @@ function showNextAugmentOffer(): void {
   }
   augmentOfferOpen = true;
   paused = true;
+  clearAim();
   try {
     ui.showAugmentChoice(defs);
   } catch (err) {
